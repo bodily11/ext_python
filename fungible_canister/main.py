@@ -61,19 +61,19 @@ db: Database = {
         'events':[],
         'transactions':[],
         'canister_metadata':{
-            'name':'Python on the IC',
-            'description': 'The first fungible token built in Python and deployed on the Internet Computer.',
+            'name':'',
+            'description': '',
             'logo':'',
-            'symbol':'PYONIC',
+            'symbol':'',
             'decimals':8,
             'fee_amount':big(1),
             'burn_amount':big(1),
-            'fee_address':'bf743f882f3b3f06b5809ad29ee2cf2821ef25b4998d4345e97131bb680c6022',
+            'fee_address':'',
             'burn_address': '0000000000000000000000000000000000000000000000000000000000000001',
-            'admin_principals': ['2sr56-kadmk-wfai7-753z7-yo6rd-a4d2f-ghedf-wrkvd-rav3s-2vcfm-wae'],
+            'admin_principals': [],
             'max_token_supply': big(10_000_000),
             'minted_tokens':0,
-            'owner':'2sr56-kadmk-wfai7-753z7-yo6rd-a4d2f-ghedf-wrkvd-rav3s-2vcfm-wae'
+            'owner':''
         }
     }
 

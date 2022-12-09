@@ -200,7 +200,7 @@ db: Database = {
             'collection_name': '',
             'creator_royalty': 0,
             'royalty_address':'',
-            'admin_principals': ['2sr56-kadmk-wfai7-753z7-yo6rd-a4d2f-ghedf-wrkvd-rav3s-2vcfm-wae','2vxsx-fae'], # the NFT factory canister should be added as admin to start
+            'admin_principals': [],
             'burn_address': '0000000000000000000000000000000000000000000000000000000000000001',
             'max_number_of_nfts_to_mint': 0,
             'owner':'',
