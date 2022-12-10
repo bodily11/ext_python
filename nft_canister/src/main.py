@@ -1,4 +1,4 @@
-from kybra import TypedDict,nat,query,update,Record,ic,blob,nat16,nat64,pre_upgrade,post_upgrade,init,opt,Principal,Variant,nat8,nat32,float64,Func,Query
+from kybra import TypedDict,nat,query,update,Record,ic,blob,nat16,nat64,pre_upgrade,post_upgrade,init,opt,Principal,Variant,nat8,nat32,float64,Func,Query,method,Canister,Async,CanisterResult
 import math
 from typing import TypeAlias
 
@@ -109,7 +109,7 @@ class Event(Record):
     timestamp: nat
     actor_principal: str
 
-class Canister(Record):
+class CanisterMeta(Record):
     collection_name: str
     creator_royalty: nat
     royalty_address: str
@@ -155,23 +155,48 @@ class SetCanister(Record):
     dscvr: opt[str]
     web: opt[str]
 
-class RawAsset(Record):
+class Asset(Record):
     file_name: str
     asset_bytes: list[blob]
     thumbnail_bytes: blob
     file_type: str
 
-class RawAssetForUpload(Record):
+class AssetForUpload(Record):
     file_name: str
     asset_bytes: blob
     thumbnail_bytes: blob
     file_type: str
 
-class OptRawAsset(Record):
+class EditAsset(Record):
     file_name: opt[str]
     asset_bytes: opt[blob]
     thumbnail_bytes: opt[blob]
     file_type: opt[str]
+
+class ManualCondition(Record):
+    display_flag: bool
+
+# class RepeatedTimeCondition(Record):
+#     start: nat
+#     duration: nat
+#     repeat: str
+
+# class DataCondition(Record):
+#     transfers: opt[nat]
+
+class SingleTimeCondition(Record):
+    change_after: nat
+
+class Conditions(Variant, total=False):
+    single_time_condition: SingleTimeCondition
+    # repeated_time_condition: RepeatedTimeCondition
+    # data_condition: DataCondition
+    manual_condition: ManualCondition
+
+class AssetCategory(Record):
+    category_type: Conditions
+    priority: nat
+    asset_category: str
 
 class Database(TypedDict):
     registry: dict[nat, str]
@@ -179,9 +204,10 @@ class Database(TypedDict):
     nfts: dict[nat, Nft]
     transactions: list[TransferEvent]
     events: list[Event]
-    raw_assets: dict[nat,RawAsset]
+    assets: dict[nat,dict[str,Asset]]
     all_rarity_scores: dict[str, dict[nat, float64]]
-    canister_metadata: Canister
+    asset_categories: dict[str, AssetCategory]
+    canister_metadata: CanisterMeta
 
 class StableStorage(TypedDict):
     db: str
@@ -194,8 +220,9 @@ db: Database = {
         'nfts':{},
         'transactions':[],
         'events':[],
-        'raw_assets':{},
+        'assets':{},
         'all_rarity_scores':{},
+        'asset_categories': {},
         'canister_metadata':{
             'collection_name': '',
             'creator_royalty': 0,
@@ -288,6 +315,44 @@ def post_upgrade_():
     db = eval(stable_storage['db'])
     new_event('Upgrade','Canister was upgraded')
 
+@query
+def get_asset_categories() -> list[tuple[str, AssetCategory]]:
+    return list(db['asset_categories'].items())
+
+@update
+def trigger_reveal_on(asset_category_name: str) -> FunctionCallResult:
+    condition = db['asset_categories'][asset_category_name]['category_type']
+    if 'manual_condition' in condition:
+        condition['manual_condition']['display_flag'] = True
+        return {'ok':f'Display for {asset_category_name} was successfully switched to True.'}
+    else:
+        return {'err':f'Sorry, {asset_category_name} is not a manually triggered condition and cannot be switched to True.'}
+
+def trigger_reveal_off(asset_category_name: str) -> FunctionCallResult:
+    condition = db['asset_categories'][asset_category_name]['category_type']
+    if 'manual_condition' in condition:
+        condition['manual_condition']['display_flag'] = False
+        return {'ok':f'Display for {asset_category_name} was successfully switched to True.'}
+    else:
+        return {'err':f'Sorry, {asset_category_name} is not a manually triggered condition and cannot be switched to False.'}
+
+def determine_asset_category() -> str:
+    all_matching_conditions: list[tuple[str,nat]] = []
+    current_timestamp = ic.time()
+    for asset_category_name,asset_category in db['asset_categories'].items():
+        condition = asset_category['category_type']
+        if 'manual_condition' in condition:
+            if condition['manual_condition']['display_flag']:
+                all_matching_conditions.append((asset_category_name,db['asset_categories'][asset_category_name]['priority']))
+        if 'single_time_condition' in condition:
+            if current_timestamp > condition['single_time_condition']['change_after']:
+                all_matching_conditions.append((asset_category_name,db['asset_categories'][asset_category_name]['priority']))
+    if len(all_matching_conditions) > 0:
+        final_condition = max(all_matching_conditions,key=lambda item:item[1])
+        return final_condition[0]
+    else:
+        return 'start'
+
 def sanitize_address(address: str) -> str:
     '''
     Cleans up a user principal, canister, or address with spaces and returns a normal address.
@@ -322,12 +387,14 @@ def get_events() -> list[Event]:
     return db['events']
 
 @query
-def get_assets() -> list[tuple[str,str]]:
+def get_assets(asset_category: opt[str]) -> list[tuple[str,str]]:
     '''
-    Returns a list of all raw assets. Assets are added to raw assets when they are uploaded to the canister for the first time.
+    Returns a list of all assets. Assets are added when they are uploaded to the canister for the first time.
     '''
-    temp = [(str(x[0]),x[1]['file_name']) for x in db['raw_assets'].items()]
-    return temp
+    if asset_category is None:
+        asset_category = 'start'
+    all_asset_categories = [(str(x[0]),x[1][asset_category]['file_name']) for x in db['assets'].items()]
+    return all_asset_categories
 
 @query
 def get_transactions() -> list[TransferEvent]:
@@ -612,7 +679,7 @@ def get_rarity_data(rarity_category: str) -> list[tuple[nat, float64]]:
         return list()
 
 @query
-def get_canister_metadata() -> Canister:
+def get_canister_metadata() -> CanisterMeta:
     return db['canister_metadata']
 
 @update
@@ -722,25 +789,27 @@ def admin_remove(admin_principal: str) -> FunctionCallResult:
         return {'err':'Only admin can call remove admin'}
 
 @update
-def upload_raw_asset(raw_asset: RawAssetForUpload, chunk: opt[nat], asset_index: opt[nat]) -> FunctionCallResultNat:
+def upload_asset(asset: AssetForUpload, chunk: opt[nat], asset_index: opt[nat], asset_category: opt[str]) -> FunctionCallResultNat:
     '''
-    Uploads a base64 string raw asset to the raw_assets table.
+    Uploads a base64 string raw asset to the assets table.
     '''
     if str(ic.caller()) in db['canister_metadata']['admin_principals']:
+        if asset_category is None:
+            asset_category = 'start'
         if chunk == 0 or chunk is None:
             if asset_index is None:
-                asset_index = len(db['raw_assets'])
-            db['raw_assets'][asset_index] = {
-                'file_name':raw_asset['file_name'],
-                'asset_bytes':[raw_asset['asset_bytes']],
-                'thumbnail_bytes':raw_asset['thumbnail_bytes'],
-                'file_type':raw_asset['file_type']
+                asset_index = len(db['assets'])
+            db['assets'][asset_index][asset_category] = {
+                'file_name':asset['file_name'],
+                'asset_bytes':[asset['asset_bytes']],
+                'thumbnail_bytes':asset['thumbnail_bytes'],
+                'file_type':asset['file_type']
             }
             new_event('Raw asset was uploaded',f"Raw asset {asset_index} was uploaded.")
             return {'ok':asset_index}
         else:
             if asset_index is not None:
-                db['raw_assets'][asset_index]['asset_bytes'].append(raw_asset['asset_bytes'])
+                db['assets'][asset_index][asset_category]['asset_bytes'].append(asset['asset_bytes'])
                 return {'ok':chunk}
             else:
                 return {'err':'When passing a chunk greater than 0 you must pass in an asset index'}
@@ -748,35 +817,37 @@ def upload_raw_asset(raw_asset: RawAssetForUpload, chunk: opt[nat], asset_index:
         return {'err':'Only admin can call upload raw asset.'}
 
 @update
-def edit_raw_asset(opt_raw_asset: OptRawAsset, chunk: opt[nat], asset_index: nat) -> FunctionCallResult:
+def edit_asset(asset: EditAsset, chunk: opt[nat], asset_index: nat, asset_category: opt[str]) -> FunctionCallResult:
     '''
     Edits an existing raw asset in the raw assets table.
     '''
     if str(ic.caller()) in db['canister_metadata']['admin_principals']:
+        if asset_category is None:
+            asset_category = 'start'
         if chunk == 0 or chunk is None:
-            existing_asset = db['raw_assets'][asset_index]
+            existing_asset = db['assets'][asset_index][asset_category]
 
-            if opt_raw_asset['asset_bytes']:
-                existing_asset['asset_bytes'] = [opt_raw_asset['asset_bytes']]
+            if asset['asset_bytes']:
+                existing_asset['asset_bytes'] = [asset['asset_bytes']]
                 new_event('Edit Raw Asset',f"Raw asset {asset_index} was changed.")
 
-            if opt_raw_asset['thumbnail_bytes']:
-                existing_asset['thumbnail_bytes'] = opt_raw_asset['thumbnail_bytes']
+            if asset['thumbnail_bytes']:
+                existing_asset['thumbnail_bytes'] = asset['thumbnail_bytes']
                 new_event('Edit Raw Thumbnail',f"Raw asset thumbnail {asset_index} was changed.")
                     
-            if opt_raw_asset['file_name']:
-                existing_asset['file_name'] = opt_raw_asset['file_name']
-                new_event('Edit Raw Asset Filename',f"Raw asset {asset_index} filename was changed from '{db['raw_assets'][asset_index]['file_name']}' to '{opt_raw_asset['file_name']}'.")
+            if asset['file_name']:
+                existing_asset['file_name'] = asset['file_name']
+                new_event('Edit Raw Asset Filename',f"Raw asset {asset_index} filename was changed from '{db['assets'][asset_index]['file_name']}' to '{asset['file_name']}'.")
 
-            if opt_raw_asset['file_type']:
-                existing_asset['file_type'] = opt_raw_asset['file_type']
-                new_event('Edit Raw Asset File Type',f"Raw asset {asset_index} file_type was changed from '{db['raw_assets'][asset_index]['file_type']}' to '{opt_raw_asset['file_type']}'.")
+            if asset['file_type']:
+                existing_asset['file_type'] = asset['file_type']
+                new_event('Edit Raw Asset File Type',f"Raw asset {asset_index} file_type was changed from '{db['assets'][asset_index]['file_type']}' to '{asset['file_type']}'.")
         
-            db['raw_assets'][asset_index] = existing_asset
+            db['assets'][asset_index][asset_category] = existing_asset
             return {'ok':'Asset successfully updated'}
         else:
-            if opt_raw_asset['asset_bytes']:
-                db['raw_assets'][asset_index]['asset_bytes'].append(opt_raw_asset['asset_bytes'])
+            if asset['asset_bytes']:
+                db['assets'][asset_index][asset_category]['asset_bytes'].append(asset['asset_bytes'])
                 return {'ok':'You successfully added an asset chunk to your existing asset.'}
             else:
                 return {'err':'If you supply a chunk you must also supply an asset_base64_str chunk.'}
@@ -784,14 +855,16 @@ def edit_raw_asset(opt_raw_asset: OptRawAsset, chunk: opt[nat], asset_index: nat
         return {'err':'Only admin can call edit raw asset.'}
 
 @update
-def remove_raw_asset(asset_index: nat) -> FunctionCallResult:
+def remove_asset(asset_index: nat, asset_category: opt[str]) -> FunctionCallResult:
     '''
     Removes a raw asset from the raw_assets table. This removes the index from the raw assets array which cannot be replaced.
     '''
     if str(ic.caller()) in db['canister_metadata']['admin_principals']:
-        if asset_index in db['raw_assets']:
-            del db['raw_assets'][asset_index]
-            new_event('Remove Raw Asset',f"Raw asset {asset_index} was removed.")
+        if asset_index in db['assets']:
+            if asset_category is None:
+                asset_category = 'start'
+            del db['assets'][asset_index][asset_category]
+            new_event('Remove Asset',f"Asset {asset_index} from {asset_category} was removed.")
             
             return {'ok':'Raw asset successfully deleted.'}
         else:
@@ -1013,8 +1086,19 @@ def _transfer(nft_index: nat, from_address: str, to_address: str) -> FunctionCal
     else:
         return {'err':"Sorry, that NFT does not exist."}
 
+class ManagementCanister(Canister):
+    @method
+    def raw_rand(self) -> blob: ...
+
+def get_randomness_directly() -> Async[blob]:
+    management_canister = ManagementCanister(Principal.from_str('aaaaa-aa'))
+    randomness_result: CanisterResult[blob] = yield management_canister.raw_rand()
+    if randomness_result.err is not None:
+        return bytes()
+    return randomness_result.ok
+
 @update
-def airdrop(to_addresses: list[str], nft_indexes: opt[list[nat]]) -> FunctionCallResult:
+def airdrop(to_addresses: list[str], nft_indexes: opt[list[nat]]) -> Async[FunctionCallResult]:
     '''
     Allows an admin to airdrop NFTs in the "0000" address to a list of addresses. 
     '''
@@ -1040,8 +1124,22 @@ def airdrop(to_addresses: list[str], nft_indexes: opt[list[nat]]) -> FunctionCal
             else:
                 return {'err':'If you supply NFT indexes you must supply an NFT index for every to address.'}
         else:
+            randomness: blob = yield get_randomness_directly()
+            if len(randomness) == 0:
+                return {'err':'Randomness call failed, please wait until we can get randomness to do a fair airdrop.'}
+            
+            list_a: list[str] = []
+            list_b: list[str] = []
+            for count,to_address in enumerate(sorted(to_addresses)):
+                random_byte = randomness[count % 32]
+                if random_byte > 128:
+                    list_a.append(to_address)
+                else:
+                    list_b.append(to_address)
+            final_to_addresses = list_b + list_a
+
             if len(to_addresses) <= len(available_tokens):
-                for to_address in to_addresses:
+                for to_address in final_to_addresses:
                     to_address = sanitize_address(to_address)
                     nft_index = available_tokens.pop(0)
                     db['registry'][nft_index] = to_address
@@ -1126,17 +1224,18 @@ def http_request_streaming_callback(token: Token) -> StreamingCallbackHttpRespon
     """
     To return assets bigger than the 2MB message limit, you have to chunk assets and iteratively return them.
     """
-    asset_index = int(token['arbitrary_data'].split(':')[0])
-    chunk_num = int(token['arbitrary_data'].split(':')[1])
-    if len(db['raw_assets'][asset_index]['asset_bytes']) - 1 > chunk_num:
+    asset_category = str(token['arbitrary_data'].split(':')[0])
+    asset_index = int(token['arbitrary_data'].split(':')[1])
+    chunk_num = int(token['arbitrary_data'].split(':')[2])
+    if len(db['assets'][asset_index]['asset_bytes']) - 1 > chunk_num:
         return {
-            'body':db['raw_assets'][asset_index]['asset_bytes'][chunk_num],
+            'body':db['assets'][asset_index][asset_category]['asset_bytes'][chunk_num],
             'token':{'arbitrary_data':f'{asset_index}:{chunk_num + 1}'}
         }
     # this is the final condition, token = None means we don't have any more chunks
     else:
         return {
-            'body':db['raw_assets'][asset_index]['asset_bytes'][chunk_num],
+            'body':db['assets'][asset_index][asset_category]['asset_bytes'][chunk_num],
             'token':None
         }
 
@@ -1187,15 +1286,15 @@ def return_image_html(img_url: opt[str]) -> HttpResponse:
             'body':bytes('NFT image not found','utf-8'),
             'streaming_strategy': None,
             'upgrade': False
-        } 
+        }
 
-def return_multipart_image_html(asset_index: opt[nat], image_bytes: opt[blob]) -> HttpResponse:
+def return_multipart_image_html(asset_index: opt[nat], image_bytes: opt[blob], asset_category: str) -> HttpResponse:
     '''
     An internal function that returns an SVG wrapper for base64 images.
     '''
     if image_bytes:
         if asset_index is not None:
-            if len(db['raw_assets'][asset_index]['asset_bytes']) > 1:
+            if len(db['assets'][asset_index][asset_category]['asset_bytes']) > 1:
                 # we have more than one chunk, so use http_request_streaming_callback
                 return {
                     'status_code':200,
@@ -1206,7 +1305,7 @@ def return_multipart_image_html(asset_index: opt[nat], image_bytes: opt[blob]) -
                     'body':image_bytes,
                     'streaming_strategy': {
                         'Callback':{
-                            'token':{'arbitrary_data':f'{asset_index}:1'}, #chunk num is 1 for the 2nd param
+                            'token':{'arbitrary_data':f'{asset_category}:{asset_index}:1'}, #chunk num is 1 for the 2nd param
                             'callback':(ic.id(), 'http_request_streaming_callback')
                         }
                     },
@@ -1247,6 +1346,8 @@ def http_request(request: HttpRequest) -> HttpResponse:
     Handles all branching logic needed to handle NFT indexes, EXT token identifiers, thumbnails, and raw assets.
     '''
     request_url = request['url']
+    asset_category = determine_asset_category()
+
     if 'index' in request_url and 'thumbnail' not in request_url:
         params = get_request_params(request_url)
         nft_index = int(params['index'])
@@ -1259,9 +1360,9 @@ def http_request(request: HttpRequest) -> HttpResponse:
     elif 'index' in request_url and 'thumbnail' in request_url:
         params = get_request_params(request_url)
         nft_index = int(params['index'])
-        asset_index = db['nfts'][nft_index]['asset_index']
+        asset_index = db['nfts'][nft_index]['asset_index']    
         if asset_index is not None:
-            thumbnail_bytes = db['raw_assets'][asset_index]['thumbnail_bytes']
+            thumbnail_bytes = db['assets'][asset_index][asset_category]['thumbnail_bytes']
             return return_thumbnail_bytes(thumbnail_bytes)
         else:
             return return_image_html(None)
@@ -1282,7 +1383,7 @@ def http_request(request: HttpRequest) -> HttpResponse:
         nft_index = get_index_from_token_id(tokenid)
         asset_index = db['nfts'][nft_index]['asset_index']
         if asset_index is not None:
-            thumbnail_bytes = db['raw_assets'][asset_index]['thumbnail_bytes']
+            thumbnail_bytes = db['assets'][asset_index][asset_category]['thumbnail_bytes']
             return return_thumbnail_bytes(thumbnail_bytes)
         else:
             return return_image_html(None)
@@ -1290,13 +1391,13 @@ def http_request(request: HttpRequest) -> HttpResponse:
     elif 'asset' in request_url and 'thumbnail' not in request_url:
         params = get_request_params(request_url)
         asset_index = int(params['asset'])
-        image_bytes = db['raw_assets'][asset_index]['asset_bytes'][0]
-        return return_multipart_image_html(asset_index, image_bytes)
+        image_bytes = db['assets'][asset_index][asset_category]['asset_bytes'][0]
+        return return_multipart_image_html(asset_index, image_bytes, asset_category)
     
     elif 'asset' in request_url and 'thumbnail' in request_url:
         params = get_request_params(request_url)
         asset_index = int(params['asset'])
-        thumbnail_bytes = db['raw_assets'][asset_index]['thumbnail_bytes']
+        thumbnail_bytes = db['assets'][asset_index][asset_category]['thumbnail_bytes']
         return return_thumbnail_bytes(thumbnail_bytes)
     
     else:
