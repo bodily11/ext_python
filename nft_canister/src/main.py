@@ -111,19 +111,18 @@ class Event(Record):
 
 class CanisterMeta(Record):
     collection_name: str
-    creator_royalty: nat
-    royalty_address: str
-    admin_principals: list[str]
+    royalty: list[tuple[str, nat]]
+    super_admin: list[str]
+    owners: list[str]
+    collaborators: list[str]
     burn_address: str
     max_number_of_nfts_to_mint: nat
-    owner: str
     license: str
     avatar: opt[blob]
     banner: opt[blob]
     blurb: opt[str]
     brief: opt[str]
     collection: opt[blob]
-    commission: opt[nat]
     description: opt[str]
     detailpage: opt[str]
     keywords: opt[str]
@@ -135,17 +134,12 @@ class CanisterMeta(Record):
 
 class SetCanister(Record):
     collection_name: opt[str]
-    creator_royalty: opt[nat]
-    royalty_address: opt[str]
-    max_number_of_nfts_to_mint: opt[nat]
-    owner: opt[str]
     license: opt[str]
     avatar: opt[blob]
     banner: opt[blob]
     blurb: opt[str]
     brief: opt[str]
     collection: opt[blob]
-    commission: opt[nat]
     description: opt[str]
     detailpage: opt[str]
     keywords: opt[str]
@@ -156,22 +150,28 @@ class SetCanister(Record):
     web: opt[str]
 
 class Asset(Record):
-    file_name: str
+    asset_file_name: str
     asset_bytes: list[blob]
+    asset_file_type: str
+    thumb_file_name: str
     thumbnail_bytes: blob
-    file_type: str
+    thumb_file_type: str
 
 class AssetForUpload(Record):
-    file_name: str
+    asset_file_name: str
     asset_bytes: blob
+    asset_file_type: str
+    thumb_file_name: str
     thumbnail_bytes: blob
-    file_type: str
+    thumb_file_type: str
 
 class EditAsset(Record):
-    file_name: opt[str]
+    asset_file_name: opt[str]
     asset_bytes: opt[blob]
+    asset_file_type: opt[str]
+    thumb_file_name: opt[str]
     thumbnail_bytes: opt[blob]
-    file_type: opt[str]
+    thumb_file_type: opt[str]
 
 class ManualCondition(Record):
     display_flag: bool
@@ -225,19 +225,18 @@ db: Database = {
         'asset_categories': {},
         'canister_metadata':{
             'collection_name': '',
-            'creator_royalty': 0,
-            'royalty_address':'',
-            'admin_principals': [],
+            'royalty': [],
+            'super_admin':[''],
+            'owners':[''],
+            'collaborators': [''],
             'burn_address': '0000000000000000000000000000000000000000000000000000000000000001',
             'max_number_of_nfts_to_mint': 0,
-            'owner':'',
             'license':'',
             'avatar':None,
             'banner':None,
             'blurb':'',
             'brief':'',
             'collection':None,
-            'commission': None,
             'description': '',
             'detailpage':'interactive_nfts_or_videos',
             'keywords':'',
@@ -294,7 +293,9 @@ def init_():
     stable_storage['db'] = str(db)
 
     new_event('Canister Created','New canister deployed.')
-    new_event('Add Admin',f'Initial admin list set to {db["canister_metadata"]["admin_principals"]}')
+    new_event('Add Super Admin',f'Initial super admin list set to {db["canister_metadata"]["super_admin"]}')
+    new_event('Add Owners',f'Initial admin list set to {db["canister_metadata"]["owners"]}')
+    new_event('Add Collaborators',f'Initial admin list set to {db["canister_metadata"]["collaborators"]}')
     new_event('Set Burn Address',f'Initial burn address set to {db["canister_metadata"]["burn_address"]}')
 
 @pre_upgrade
@@ -387,13 +388,13 @@ def get_events() -> list[Event]:
     return db['events']
 
 @query
-def get_assets(asset_category: opt[str]) -> list[tuple[str,str]]:
+def get_assets(asset_category: opt[str]) -> list[tuple[str,str,str]]:
     '''
     Returns a list of all assets. Assets are added when they are uploaded to the canister for the first time.
     '''
     if asset_category is None:
         asset_category = 'start'
-    all_asset_categories = [(str(x[0]),x[1][asset_category]['file_name']) for x in db['assets'].items()]
+    all_asset_categories = [(str(x[0]),x[1][asset_category]['asset_file_name'],x[1][asset_category]['thumb_file_name']) for x in db['assets'].items()]
     return all_asset_categories
 
 @query
@@ -447,12 +448,22 @@ def get_tokens(address: str) -> list[nat]:
     else:
         return []
 
+def get_permissions(permission_type: str) -> list[str]:
+    if permission_type == 'level_1':
+        return db['canister_metadata']['super_admin'] + db['canister_metadata']['owners'] + db['canister_metadata']['collaborators']
+    elif permission_type == 'level_2':
+        return db['canister_metadata']['super_admin'] + db['canister_metadata']['owners']
+    elif permission_type == 'level_3':
+        return db['canister_metadata']['super_admin']
+    else:
+        return []
+
 @update
 def set_text_trait(update_metadata_text: UpdateMetadataText) -> FunctionCallResult:
     '''
     Set a static or dynamic "text" trait by name for a specific NFT index.
     '''
-    if str(ic.caller()) in db['canister_metadata']['admin_principals']:
+    if str(ic.caller()) in get_permissions('level_1'):
         db['nfts'][update_metadata_text['nft_index']]['metadata'][f"{update_metadata_text['trait_type']}_traits_{update_metadata_text['trait_format']}"][update_metadata_text['trait_name']] = update_metadata_text['trait_value']
         new_event('Set NFT trait',f"NFT {update_metadata_text['nft_index']} trait {update_metadata_text['trait_name']} was updated to {update_metadata_text['trait_value']}")
         return {'ok':f"{update_metadata_text['trait_name']} was successfully updated for index {update_metadata_text['nft_index']}."}
@@ -464,7 +475,7 @@ def set_number_trait(update_metadata_number: UpdateMetadataNumber) -> FunctionCa
     '''
     Set a static or dynamic "number" trait by name for a specific NFT index.
     '''
-    if str(ic.caller()) in db['canister_metadata']['admin_principals']:
+    if str(ic.caller()) in get_permissions('level_1'):
         db['nfts'][update_metadata_number['nft_index']]['metadata'][f"{update_metadata_number['trait_type']}_traits_{update_metadata_number['trait_format']}"][update_metadata_number['trait_name']] = update_metadata_number['trait_value']
         new_event('Set NFT trait',f"NFT {update_metadata_number['nft_index']} trait {update_metadata_number['trait_name']} was updated to {update_metadata_number['trait_value']}")
         return {'ok':f"{update_metadata_number['trait_name']} was successfully updated for index {update_metadata_number['nft_index']}."}
@@ -539,7 +550,7 @@ def compute_rarity() -> FunctionCallResult:
     '''
     total_nfts = len(db['nfts'])
     final_sorted_scores: dict[str,list[float]] = {'information_score':[], 'probability_score':[],'expected_value':[],'open_rarity_score':[]}
-    if str(ic.caller()) in db['canister_metadata']['admin_principals']:
+    if str(ic.caller()) in get_permissions('level_2'):
         trait_category_text_counts: dict[str, dict[str,int]] = {}
         trait_category_number_arrays: dict[str, list[float]] = {}
 
@@ -684,17 +695,20 @@ def get_canister_metadata() -> CanisterMeta:
 
 @update
 def set_canister_metadata(canister_data: SetCanister) -> FunctionCallResult:
-    for key in canister_data.keys():
-        if canister_data[key] is not None:
-            db['canister_metadata'][key] = canister_data[key]
-    return {'ok':'Successfully set canister metadata.'}
+    if str(ic.caller()) in get_permissions('level_1'):
+        for key in canister_data.keys():
+            if canister_data[key] is not None:
+                db['canister_metadata'][key] = canister_data[key]
+        return {'ok':'Successfully set canister metadata.'}
+    else:
+        return {'err':'Sorry, only admin can call set canister metadata.'}
 
 @update
 def set_max_number_of_nfts_to_mint(new_max_number_of_nfts_to_mint: nat) -> FunctionCallResult:
     '''
     Set a new maximum number of NFTs to mint.
     '''
-    if str(ic.caller()) in db['canister_metadata']['admin_principals']:
+    if str(ic.caller()) in get_permissions('level_2'):
         db['canister_metadata']['max_number_of_nfts_to_mint'] = int(new_max_number_of_nfts_to_mint)
         new_event('Change Number of NFTs to Mint',f"Number of NFTs to mint changed from {db['canister_metadata']['max_number_of_nfts_to_mint']} to {new_max_number_of_nfts_to_mint}")
         return {'ok':'New max number of NFTs set successfully.'}
@@ -706,7 +720,7 @@ def set_collection_name(new_collection_name: str) -> FunctionCallResult:
     '''
     Set a new name for the NFT collection.
     '''
-    if str(ic.caller()) in db['canister_metadata']['admin_principals']:
+    if str(ic.caller()) in get_permissions('level_2'):
         db['canister_metadata']['collection_name'] = str(new_collection_name)
         new_event('Edit Collection Metadata',f"Collection name changed from {db['canister_metadata']['collection_name']} to {new_collection_name}")
         return {'ok':'Collection name set successfully.'}
@@ -718,7 +732,7 @@ def set_burn_address(burn_address: str) -> FunctionCallResult:
     '''
     Set a new burn address.
     '''
-    if str(ic.caller()) in db['canister_metadata']['admin_principals']:
+    if str(ic.caller()) in get_permissions('level_2'):
         db['canister_metadata']['collection_name'] = str(burn_address)
         new_event('Edit Collection Metadata',f"Burn address changed from {db['canister_metadata']['burn_address']} to {burn_address}")
         return {'ok':'Collection burn address set successfully.'}
@@ -726,35 +740,114 @@ def set_burn_address(burn_address: str) -> FunctionCallResult:
         return {'err':'Only admin can call set burn address.'}
 
 @update
-def set_creator_royalty(creator_royalty: nat) -> FunctionCallResult:
+def set_new_creator_royalty(royalty_array: list[tuple[str, nat]]) -> FunctionCallResult:
     '''
     Set a new royalty amount (1_000 = 1%) to be paid to the creator royalty address.
     '''
-    if str(ic.caller()) in db['canister_metadata']['admin_principals']:
-        db['canister_metadata']['creator_royalty'] = nat(creator_royalty)
-        new_event('Edit Collection Metadata',f"Creator royalty changed from {db['canister_metadata']['creator_royalty']} to {creator_royalty}")
+    if str(ic.caller()) in get_permissions('level_2'):
+        db['canister_metadata']['royalty'] = royalty_array
+        new_event('Edit Collection Metadata',f"Creator royalty changed to {royalty_array}")
         return {'ok':'Creator royalty set successfully.'}
     else:
         return {'err':'Only admin can call set creator royalty.'}
 
 @update
-def set_collection_owner(collection_owner: str) -> FunctionCallResult:
+def remove_royalty_address(royalty_address: str) -> FunctionCallResult:
+    if str(ic.caller()) in get_permissions('level_2'):
+        royalty_array = db['canister_metadata']['royalty']
+        for royalty in royalty_array:
+            if royalty[0] == royalty_address:
+                db['canister_metadata']['royalty'].remove(royalty)
+        return {'ok':f'Royalty address {royalty_address} successfully removed.'}
+    else:
+        return {'err':'Sorry, only admin can call remove royalty address.'}
+
+@update
+def add_royalty_address(royalty_info: tuple[str, nat]) -> FunctionCallResult:
+    if str(ic.caller()) in get_permissions('level_2'):
+        db['canister_metadata']['royalty'].append(royalty_info)
+        return {'ok':f'Royalty address {royalty_info[0]} successfully added.'}
+    else:
+        return {'err':'Sorry, only admin can call add royalty address.'}
+
+@update
+def add_collection_super_admin(super_admin: str) -> FunctionCallResult:
     '''
     Set a new collection owner. Not used anywhere except should be used as the creator royalty address.
     '''
-    if str(ic.caller()) in db['canister_metadata']['admin_principals']:
-        db['canister_metadata']['owner'] = str(collection_owner)
-        new_event('Edit Collection Metadata',f"Collection name changed from {db['canister_metadata']['owner']} to {collection_owner}")
-        return {'ok':'Collection owner set successfully.'}
+    if str(ic.caller()) in get_permissions('level_3'):
+        db['canister_metadata']['owners'].append(str(super_admin))
+        new_event('Add Super Admin',f"New collection owner added {super_admin}.")
+        return {'ok':f'Collection owner {super_admin} added successfully.'}
     else:
-        return {'err':'Only admin can call set collection owner.'}
+        return {'err':'Only admin can call add collection super admin.'}
+
+@update
+def remove_collection_super_admin(super_admin: str) -> FunctionCallResult:
+    '''
+    Set a new collection owner. Not used anywhere except should be used as the creator royalty address.
+    '''
+    if str(ic.caller()) in get_permissions('level_3'):
+        db['canister_metadata']['owners'].remove(super_admin)
+        new_event('Remove Owner',f"Collection owner {super_admin} removed from owners array.")
+        return {'ok':f'Collection owner {super_admin} removed successfully.'}
+    else:
+        return {'err':'Only admin can call remove collection owner.'}
+
+@update
+def add_collection_owner(collection_owner: str) -> FunctionCallResult:
+    '''
+    Set a new collection owner. Not used anywhere except should be used as the creator royalty address.
+    '''
+    if str(ic.caller()) in get_permissions('level_2'):
+        db['canister_metadata']['owners'].append(str(collection_owner))
+        new_event('Add Owner',f"New collection owner added {collection_owner}.")
+        return {'ok':f'Collection owner {collection_owner} added successfully.'}
+    else:
+        return {'err':'Only admin can call add collection owner.'}
+
+@update
+def remove_collection_owner(collection_owner: str) -> FunctionCallResult:
+    '''
+    Set a new collection owner. Not used anywhere except should be used as the creator royalty address.
+    '''
+    if str(ic.caller()) in get_permissions('level_2'):
+        db['canister_metadata']['owners'].remove(collection_owner)
+        new_event('Remove Owner',f"Collection owner {collection_owner} removed from owners array.")
+        return {'ok':f'Collection owner {collection_owner} removed successfully.'}
+    else:
+        return {'err':'Only admin can call remove collection owner.'}
+
+@update
+def add_collection_collaborator(collaborator: str) -> FunctionCallResult:
+    '''
+    Set a new collection owner. Not used anywhere except should be used as the creator royalty address.
+    '''
+    if str(ic.caller()) in get_permissions('level_2'):
+        db['canister_metadata']['collaborators'].append(str(collaborator))
+        new_event('Add Owner',f"New collection owner added {collaborator}.")
+        return {'ok':f'Collection owner {collaborator} added successfully.'}
+    else:
+        return {'err':'Only admin can call add collaborators.'}
+
+@update
+def remove_collection_collaborator(collaborator: str) -> FunctionCallResult:
+    '''
+    Set a new collection owner. Not used anywhere except should be used as the creator royalty address.
+    '''
+    if str(ic.caller()) in get_permissions('level_2'):
+        db['canister_metadata']['collaborators'].remove(collaborator)
+        new_event('Remove Owner',f"Collection owner {collaborator} removed from owners array.")
+        return {'ok':f'Collection owner {collaborator} removed successfully.'}
+    else:
+        return {'err':'Only admin can call remove collaborators.'}
 
 @update
 def set_license(license: str) -> FunctionCallResult:
     '''
     Set a generic license for NFT owners of this collection.
     '''
-    if str(ic.caller()) in db['canister_metadata']['admin_principals']:
+    if str(ic.caller()) in get_permissions('level_1'):
         db['canister_metadata']['license'] = str(license)
         new_event('Edit Collection Metadata',f"Collection generic license was changed from {db['canister_metadata']['license']} to {license}.")
         return {'ok':'Collection default license set successfully.'}
@@ -762,48 +855,23 @@ def set_license(license: str) -> FunctionCallResult:
         return {'err':'Only admin can call set license.'}
 
 @update
-def admin_add(admin_principal: str) -> FunctionCallResult:
-    '''
-    Adds a new admin to the admin principal array. Grants access to all admin gated functions.
-    '''
-    if str(ic.caller()) in db['canister_metadata']['admin_principals']:
-        if (len(admin_principal) == 63 or len(admin_principal) == 27) & ('-' in admin_principal):
-            db['canister_metadata']['admin_principals'].append(admin_principal)
-            new_event('Add Admin',f'New principal {admin_principal} added as admin')
-            return {'ok':'New admin added successfully.'}
-        else:
-            return {'err':'Sorry, your principal is not the correct length for a user principal or canister principal.'}
-    else:
-        return {'err':'Only admin can call add admin.'}
-
-@update
-def admin_remove(admin_principal: str) -> FunctionCallResult:
-    '''
-    Removes an admin from the admin principal array.
-    '''
-    if str(ic.caller()) in db['canister_metadata']['admin_principals']:
-        db['canister_metadata']['admin_principals'].remove(admin_principal)
-        new_event('Remove Admin',f'Admin principal {admin_principal} has been removed as admin')
-        return {'ok':"Removing admin was successful."}
-    else:
-        return {'err':'Only admin can call remove admin'}
-
-@update
 def upload_asset(asset: AssetForUpload, chunk: opt[nat], asset_index: opt[nat], asset_category: opt[str]) -> FunctionCallResultNat:
     '''
     Uploads a base64 string raw asset to the assets table.
     '''
-    if str(ic.caller()) in db['canister_metadata']['admin_principals']:
+    if str(ic.caller()) in get_permissions('level_1'):
         if asset_category is None:
             asset_category = 'start'
         if chunk == 0 or chunk is None:
             if asset_index is None:
                 asset_index = len(db['assets'])
             db['assets'][asset_index][asset_category] = {
-                'file_name':asset['file_name'],
+                'asset_file_name':asset['asset_file_name'],
                 'asset_bytes':[asset['asset_bytes']],
+                'asset_file_type':asset['asset_file_type'],
+                'thumb_file_name':asset['thumb_file_name'],
                 'thumbnail_bytes':asset['thumbnail_bytes'],
-                'file_type':asset['file_type']
+                'thumb_file_type':asset['thumb_file_type']
             }
             new_event('Raw asset was uploaded',f"Raw asset {asset_index} was uploaded.")
             return {'ok':asset_index}
@@ -821,7 +889,7 @@ def edit_asset(asset: EditAsset, chunk: opt[nat], asset_index: nat, asset_catego
     '''
     Edits an existing raw asset in the raw assets table.
     '''
-    if str(ic.caller()) in db['canister_metadata']['admin_principals']:
+    if str(ic.caller()) in get_permissions('level_1'):
         if asset_category is None:
             asset_category = 'start'
         if chunk == 0 or chunk is None:
@@ -835,13 +903,21 @@ def edit_asset(asset: EditAsset, chunk: opt[nat], asset_index: nat, asset_catego
                 existing_asset['thumbnail_bytes'] = asset['thumbnail_bytes']
                 new_event('Edit Raw Thumbnail',f"Raw asset thumbnail {asset_index} was changed.")
                     
-            if asset['file_name']:
-                existing_asset['file_name'] = asset['file_name']
-                new_event('Edit Raw Asset Filename',f"Raw asset {asset_index} filename was changed from '{db['assets'][asset_index]['file_name']}' to '{asset['file_name']}'.")
+            if asset['asset_file_name']:
+                existing_asset['asset_file_name'] = asset['asset_file_name']
+                new_event('Edit Raw Asset Filename',f"Raw asset {asset_index} filename was changed from '{db['assets'][asset_index]['file_name']}' to '{asset['asset_file_name']}'.")
 
-            if asset['file_type']:
-                existing_asset['file_type'] = asset['file_type']
-                new_event('Edit Raw Asset File Type',f"Raw asset {asset_index} file_type was changed from '{db['assets'][asset_index]['file_type']}' to '{asset['file_type']}'.")
+            if asset['thumb_file_name']:
+                existing_asset['thumb_file_name'] = asset['thumb_file_name']
+                new_event('Edit Raw Asset Filename',f"Raw asset {asset_index} filename was changed from '{db['assets'][asset_index]['file_name']}' to '{asset['thumb_file_name']}'.")
+
+            if asset['asset_file_type']:
+                existing_asset['asset_file_type'] = asset['asset_file_type']
+                new_event('Edit Raw Asset File Type',f"Raw asset {asset_index} file_type was changed from '{db['assets'][asset_index]['file_type']}' to '{asset['asset_file_type']}'.")
+            
+            if asset['thumb_file_type']:
+                existing_asset['thumb_file_type'] = asset['thumb_file_type']
+                new_event('Edit Raw Asset File Type',f"Raw asset {asset_index} file_type was changed from '{db['assets'][asset_index]['file_type']}' to '{asset['thumb_file_type']}'.")
         
             db['assets'][asset_index][asset_category] = existing_asset
             return {'ok':'Asset successfully updated'}
@@ -859,7 +935,7 @@ def remove_asset(asset_index: nat, asset_category: opt[str]) -> FunctionCallResu
     '''
     Removes a raw asset from the raw_assets table. This removes the index from the raw assets array which cannot be replaced.
     '''
-    if str(ic.caller()) in db['canister_metadata']['admin_principals']:
+    if str(ic.caller()) in get_permissions('level_1'):
         if asset_index in db['assets']:
             if asset_category is None:
                 asset_category = 'start'
@@ -878,7 +954,7 @@ def mint_many_NFTs(nft_objects: list[NftForMinting]) -> ManyMintResult:
     Mints many NFTs in a single update call for more efficient minting. Can likely handle up to 1000 mints at a time.
     '''
     error_messages: list[str] = []
-    if str(ic.caller()) in db['canister_metadata']['admin_principals']:
+    if str(ic.caller()) in get_permissions('level_2'):
         if len(db['registry']) + len(nft_objects) < db['canister_metadata']['max_number_of_nfts_to_mint']:
             for nft_object in nft_objects:
                 nft_index = nft_object['nft_index']
@@ -942,7 +1018,7 @@ def mint_nft(nft_object: NftForMinting) -> FunctionCallResult:
     if not nft_index:
         nft_index = len(db['registry'])
     
-    if str(ic.caller()) in db['canister_metadata']['admin_principals']:
+    if str(ic.caller()) in get_permissions('level_2'):
         if nft_index not in db['registry']:
             if len(db['registry']) < db['canister_metadata']['max_number_of_nfts_to_mint']:
                 if len(to_address) == 64:
@@ -986,7 +1062,7 @@ def edit_nft(nft_object: Nft) -> FunctionCallResult:
     asset_index = nft_object['asset_index']
     metadata = nft_object['metadata']
 
-    if str(ic.caller()) in db['canister_metadata']['admin_principals']:
+    if str(ic.caller()) in get_permissions('level_1'):
         if nft_index in db['registry']:
             current_nft = db['nfts'][nft_index]
             if asset_url:
@@ -1022,7 +1098,7 @@ def unmint_nft(nft_index: nat) -> FunctionCallResult:
     '''
     Completely removes an NFT from existence. Deletes from registry, address_registry, and nfts tables.
     '''
-    if str(ic.caller()) in db['canister_metadata']['admin_principals']:
+    if str(ic.caller()) in get_permissions('level_2'):
         if nft_index in db['registry']:
             current_owner = db['registry'][nft_index]
             
@@ -1102,7 +1178,7 @@ def airdrop(to_addresses: list[str], nft_indexes: opt[list[nat]]) -> Async[Funct
     '''
     Allows an admin to airdrop NFTs in the "0000" address to a list of addresses. 
     '''
-    if str(ic.caller()) in db['canister_metadata']['admin_principals']:
+    if str(ic.caller()) in get_permissions('level_2'):
         available_tokens = db['address_registry']['0000']
         if nft_indexes is not None:
             if len(to_addresses) == len(nft_indexes):
@@ -1167,7 +1243,7 @@ def admin_transfer(nft_index: nat, to_address: str) -> FunctionCallResult:
     '''
     to_address = sanitize_address(to_address)
     if nft_index in db['registry']:
-        if str(ic.caller()) in db['canister_metadata']['admin_principals']:
+        if str(ic.caller()) in get_permissions('level_3'):
             if len(to_address) == 64:
                 current_owner = db['registry'][nft_index]
                 
@@ -1239,46 +1315,97 @@ def http_request_streaming_callback(token: Token) -> StreamingCallbackHttpRespon
             'token':None
         }
 
-def return_thumbnail_bytes(thumbnail_bytes: blob) -> HttpResponse:
+def get_content_type(file_type: str) -> str:
+    if file_type == 'png':
+        content_type = 'image/png'
+    elif file_type == 'jpg' or file_type == 'jpeg':
+        content_type = 'image/jpeg'
+    elif file_type == 'gif':
+        content_type = 'image/gif'
+    elif file_type == 'mp4':
+        content_type = 'video/mp4'
+    else:
+        content_type = 'image/png'
+    return content_type
+
+def return_thumbnail_bytes(thumbnail_bytes: blob, thumb_file_type: str) -> HttpResponse:
     '''
     An internal function that returns an SVG wrapper for base64 images.
     '''
+    content_type = get_content_type(thumb_file_type)
+
     return {
         'status_code':200,
         'headers':[
-            ('Content-Type','image/png')
+            ('Content-Type', content_type)
         ],
         'body':thumbnail_bytes,
         'streaming_strategy': None,
         'upgrade': False
     }
 
-def return_image_html(img_url: opt[str]) -> HttpResponse:
+def return_image_html(asset_url: opt[str], asset_file_type: str) -> HttpResponse:
     '''
     An internal function that returns an SVG wrapper for base64 images.
     '''
-    if img_url:
-        width = 800
-        height = 800
-        
-        img_url = img_url.replace('&', '&amp;')
-        http_response_body = bytes(f'''
-            <svg xmlns="http://www.w3.org/2000/svg" xmlns:xlink="http://www.w3.org/1999/xlink" style="width: {width}px;height: {height}px;" version="1.1" id="generated" x="0px" y="0px" viewBox="0 0 {width} {height}" xml:space="preserve">
-                <g>
-                    <image href="{img_url}"/>
-                </g>
-            </svg>
-        ''',encoding='utf-8')
-        return {
-            'status_code':200,
-            'headers':[
-                ('Content-Type','image/svg+xml'),
-                ('Content-Length',str(len(http_response_body)))
-            ],
-            'body':http_response_body,
-            'streaming_strategy': None,
-            'upgrade': False
-        }
+    content_type = get_content_type(asset_file_type)
+    if asset_url:
+        if 'image' in content_type:
+            width = 800
+            height = 800
+            
+            asset_url = asset_url.replace('&', '&amp;')
+            http_response_body = bytes(f'''
+                <svg xmlns="http://www.w3.org/2000/svg" xmlns:xlink="http://www.w3.org/1999/xlink" style="width: {width}px;height: {height}px;" version="1.1" id="generated" x="0px" y="0px" viewBox="0 0 {width} {height}" xml:space="preserve">
+                    <g>
+                        <image href="{asset_url}"/>
+                    </g>
+                </svg>
+            ''',encoding='utf-8')
+            return {
+                'status_code':200,
+                'headers':[
+                    ('Content-Type','image/svg+xml'),
+                    ('Content-Length',str(len(http_response_body)))
+                ],
+                'body':http_response_body,
+                'streaming_strategy': None,
+                'upgrade': False
+            }
+        elif 'video' in content_type:
+            width = 800
+            height = 800
+            
+            asset_url = asset_url.replace('&', '&amp;')
+            http_response_body = bytes(f'''
+                <!DOCTYPE html>
+                <html>
+                <body>
+                    <video width="{width}" height="{height}" autoplay loop>
+                        <source src="{asset_url}" type="video/mp4">
+                        Your browser does not support the video tag.
+                    </video>
+                </body>
+                </html>
+            ''',encoding='utf-8')
+            return {
+                'status_code':200,
+                'headers':[
+                    ('Content-Type','text/html'),
+                    ('Content-Length',str(len(http_response_body)))
+                ],
+                'body':http_response_body,
+                'streaming_strategy': None,
+                'upgrade': False
+            }
+        else:
+            return {
+                'status_code':400,
+                'headers':[('Content-Type','text/html')],
+                'body':bytes(f'NFT asset type {content_type} not supported','utf-8'),
+                'streaming_strategy': None,
+                'upgrade': False
+            }        
     else:
         return {
             'status_code':400,
@@ -1288,40 +1415,78 @@ def return_image_html(img_url: opt[str]) -> HttpResponse:
             'upgrade': False
         }
 
-def return_multipart_image_html(asset_index: opt[nat], image_bytes: opt[blob], asset_category: str) -> HttpResponse:
+def return_multipart_image_html(asset_index: opt[nat], asset_bytes: opt[blob], asset_category: str, asset_file_type: str) -> HttpResponse:
     '''
     An internal function that returns an SVG wrapper for base64 images.
     '''
-    if image_bytes:
+    if asset_bytes:
         if asset_index is not None:
-            if len(db['assets'][asset_index][asset_category]['asset_bytes']) > 1:
-                # we have more than one chunk, so use http_request_streaming_callback
-                return {
-                    'status_code':200,
-                    'headers':[
-                        ('Content-Type','image/png'),
-                        ('Transfer-Encoding', 'chunked')
-                    ],
-                    'body':image_bytes,
-                    'streaming_strategy': {
-                        'Callback':{
-                            'token':{'arbitrary_data':f'{asset_category}:{asset_index}:1'}, #chunk num is 1 for the 2nd param
-                            'callback':(ic.id(), 'http_request_streaming_callback')
-                        }
-                    },
-                    'upgrade': False
-                }
+            if asset_file_type in ['png','jpeg','jpg','gif']:
+                if len(db['assets'][asset_index][asset_category]['asset_bytes']) > 1:
+                    # we have more than one chunk, so use http_request_streaming_callback
+                    return {
+                        'status_code':200,
+                        'headers':[
+                            ('Content-Type','image/png'),
+                            ('Transfer-Encoding', 'chunked')
+                        ],
+                        'body':asset_bytes,
+                        'streaming_strategy': {
+                            'Callback':{
+                                'token':{'arbitrary_data':f'{asset_category}:{asset_index}:1'}, #chunk num is 1 for the 2nd param
+                                'callback':(ic.id(), 'http_request_streaming_callback')
+                            }
+                        },
+                        'upgrade': False
+                    }
+                else:
+                    # we only have a single chunk, so no streaming callback needed
+                    return {
+                        'status_code':200,
+                        'headers':[
+                            ('Content-Type','image/png'),
+                        ],
+                        'body':asset_bytes,
+                        'streaming_strategy': None,
+                        'upgrade': False
+                    }
+            elif asset_file_type in ['mp4']:
+                if len(db['assets'][asset_index][asset_category]['asset_bytes']) > 1:
+                    # we have more than one chunk, so use http_request_streaming_callback
+                    return {
+                        'status_code':200,
+                        'headers':[
+                            ('Content-Type','video/mp4'),
+                            ('Transfer-Encoding', 'chunked')
+                        ],
+                        'body':asset_bytes,
+                        'streaming_strategy': {
+                            'Callback':{
+                                'token':{'arbitrary_data':f'{asset_category}:{asset_index}:1'}, #chunk num is 1 for the 2nd param
+                                'callback':(ic.id(), 'http_request_streaming_callback')
+                            }
+                        },
+                        'upgrade': False
+                    }
+                else:
+                    # we only have a single chunk, so no streaming callback needed
+                    return {
+                        'status_code':200,
+                        'headers':[
+                            ('Content-Type','video/mp4'),
+                        ],
+                        'body':asset_bytes,
+                        'streaming_strategy': None,
+                        'upgrade': False
+                    }
             else:
-                # we only have a single chunk, so no streaming callback needed
                 return {
-                    'status_code':200,
-                    'headers':[
-                        ('Content-Type','image/png'),
-                    ],
-                    'body':image_bytes,
+                    'status_code':400,
+                    'headers':[('Content-Type','text/html')],
+                    'body':bytes(f'NFT asset type {asset_file_type} not supported','utf-8'),
                     'streaming_strategy': None,
                     'upgrade': False
-                }
+                }    
         else:
             return {
             'status_code':400,
@@ -1352,10 +1517,11 @@ def http_request(request: HttpRequest) -> HttpResponse:
         params = get_request_params(request_url)
         nft_index = int(params['index'])
         asset_url = db["nfts"][nft_index]["asset_url"]
+        asset_type = db['nfts'][nft_index]['asset_type']
         if asset_url:
-            return return_image_html(asset_url)
+            return return_image_html(asset_url, asset_type)
         else:
-            return return_image_html(None)
+            return return_image_html(None, '')
     
     elif 'index' in request_url and 'thumbnail' in request_url:
         params = get_request_params(request_url)
@@ -1363,19 +1529,21 @@ def http_request(request: HttpRequest) -> HttpResponse:
         asset_index = db['nfts'][nft_index]['asset_index']    
         if asset_index is not None:
             thumbnail_bytes = db['assets'][asset_index][asset_category]['thumbnail_bytes']
-            return return_thumbnail_bytes(thumbnail_bytes)
+            thumb_file_type = db['assets'][asset_index][asset_category]['thumb_file_type']
+            return return_thumbnail_bytes(thumbnail_bytes, thumb_file_type)
         else:
-            return return_image_html(None)
+            return return_image_html(None, '')
 
     elif 'tokenid' in request_url and 'thumbnail' not in request_url:
         params = get_request_params(request_url)
         tokenid = str(params['tokenid'])
         nft_index = get_index_from_token_id(tokenid)
         asset_url = db["nfts"][nft_index]["asset_url"]
+        asset_type = db['nfts'][nft_index]['asset_type']
         if asset_url:
-            return return_image_html(asset_url)
+            return return_image_html(asset_url, asset_type)
         else:
-            return return_image_html(None)
+            return return_image_html(None, '')
     
     elif 'tokenid' in request_url and 'thumbnail' in request_url:
         params = get_request_params(request_url)
@@ -1384,21 +1552,24 @@ def http_request(request: HttpRequest) -> HttpResponse:
         asset_index = db['nfts'][nft_index]['asset_index']
         if asset_index is not None:
             thumbnail_bytes = db['assets'][asset_index][asset_category]['thumbnail_bytes']
-            return return_thumbnail_bytes(thumbnail_bytes)
+            thumb_file_type = db['assets'][asset_index][asset_category]['thumb_file_type']
+            return return_thumbnail_bytes(thumbnail_bytes, thumb_file_type)
         else:
-            return return_image_html(None)
+            return return_image_html(None, '')
     
     elif 'asset' in request_url and 'thumbnail' not in request_url:
         params = get_request_params(request_url)
         asset_index = int(params['asset'])
-        image_bytes = db['assets'][asset_index][asset_category]['asset_bytes'][0]
-        return return_multipart_image_html(asset_index, image_bytes, asset_category)
+        asset_bytes = db['assets'][asset_index][asset_category]['asset_bytes'][0]
+        asset_type = db['assets'][asset_index][asset_category]['asset_file_type']
+        return return_multipart_image_html(asset_index, asset_bytes, asset_category, asset_type)
     
     elif 'asset' in request_url and 'thumbnail' in request_url:
         params = get_request_params(request_url)
         asset_index = int(params['asset'])
         thumbnail_bytes = db['assets'][asset_index][asset_category]['thumbnail_bytes']
-        return return_thumbnail_bytes(thumbnail_bytes)
+        thumb_file_type = db['assets'][asset_index][asset_category]['thumb_file_type']
+        return return_thumbnail_bytes(thumbnail_bytes, thumb_file_type)
     
     else:
         burn_address = db['canister_metadata']['burn_address']
@@ -1409,7 +1580,9 @@ def http_request(request: HttpRequest) -> HttpResponse:
             burned_nfts_count = 0
         current_supply = minted_nfts_count - burned_nfts_count
         unique_holders = get_unique_holders()
-        admin = ','.join(db['canister_metadata']['admin_principals'])
+        super_admin = ','.join(db['canister_metadata']['super_admin'])
+        owners = ','.join(db['canister_metadata']['owners'])
+        collaborators = ','.join(db['canister_metadata']['collaborators'])
         http_response_body = bytes(f'''
             <!DOCTYPE html>
             <html>
@@ -1425,8 +1598,16 @@ def http_request(request: HttpRequest) -> HttpResponse:
                                 <td style="padding: 12px 15px;">{db['canister_metadata']['collection_name']}</td>
                             </tr>
                             <tr style="border-bottom: 1px solid #dddddd">
-                                <td style="padding: 12px 15px;">List of Admins</td>
-                                <td style="padding: 12px 15px;">{admin}</td>
+                                <td style="padding: 12px 15px;">Super Admins</td>
+                                <td style="padding: 12px 15px;">{super_admin}</td>
+                            </tr>
+                            <tr style="border-bottom: 1px solid #dddddd">
+                                <td style="padding: 12px 15px;">Owners</td>
+                                <td style="padding: 12px 15px;">{owners}</td>
+                            </tr>
+                            <tr style="border-bottom: 1px solid #dddddd">
+                                <td style="padding: 12px 15px;">Collaborators</td>
+                                <td style="padding: 12px 15px;">{collaborators}</td>
                             </tr>
                             <tr style="border-bottom: 1px solid #dddddd">
                                 <td style="padding: 12px 15px;">Burn Address</td>

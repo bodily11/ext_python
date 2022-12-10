@@ -6,8 +6,10 @@ type AssetCategory = record {
 type AssetForUpload = record {
   thumbnail_bytes : vec nat8;
   asset_bytes : vec nat8;
-  file_name : text;
-  file_type : text;
+  asset_file_name : text;
+  asset_file_type : text;
+  thumb_file_name : text;
+  thumb_file_type : text;
 };
 type CallbackStrategy = record {
   token : Token;
@@ -19,23 +21,22 @@ type CanisterMeta = record {
   web : opt text;
   burn_address : text;
   twitter : opt text;
+  owners : vec text;
   collection : opt vec nat8;
-  owner : text;
+  super_admin : vec text;
   banner : opt vec nat8;
   description : opt text;
-  commission : opt nat;
   collection_name : text;
   distrikt : opt text;
   detailpage : opt text;
-  creator_royalty : nat;
   keywords : opt text;
-  royalty_address : text;
+  collaborators : vec text;
   discord : opt text;
   blurb : opt text;
   brief : opt text;
   license : text;
+  royalty : vec record { text; nat };
   dscvr : opt text;
-  admin_principals : vec text;
   avatar : opt vec nat8;
   max_number_of_nfts_to_mint : nat;
 };
@@ -52,8 +53,10 @@ type Conditions = variant {
 type EditAsset = record {
   thumbnail_bytes : opt vec nat8;
   asset_bytes : opt vec nat8;
-  file_name : opt text;
-  file_type : opt text;
+  asset_file_name : opt text;
+  asset_file_type : opt text;
+  thumb_file_name : opt text;
+  thumb_file_type : opt text;
 };
 type Event = record {
   description : text;
@@ -123,23 +126,18 @@ type SetCanister = record {
   web : opt text;
   twitter : opt text;
   collection : opt vec nat8;
-  owner : opt text;
   banner : opt vec nat8;
   description : opt text;
-  commission : opt nat;
   collection_name : opt text;
   distrikt : opt text;
   detailpage : opt text;
-  creator_royalty : opt nat;
   keywords : opt text;
-  royalty_address : opt text;
   discord : opt text;
   blurb : opt text;
   brief : opt text;
   license : opt text;
   dscvr : opt text;
   avatar : opt vec nat8;
-  max_number_of_nfts_to_mint : opt nat;
 };
 type SingleTimeCondition = record { change_after : nat };
 type StreamingCallbackHttpResponse = record {
@@ -196,8 +194,10 @@ type UpdateMetadataText = record {
 };
 type User = variant { "principal" : principal; address : text };
 service : () -> {
-  admin_add : (text) -> (FunctionCallResult);
-  admin_remove : (text) -> (FunctionCallResult);
+  add_collection_collaborator : (text) -> (FunctionCallResult);
+  add_collection_owner : (text) -> (FunctionCallResult);
+  add_collection_super_admin : (text) -> (FunctionCallResult);
+  add_royalty_address : (record { text; nat }) -> (FunctionCallResult);
   admin_transfer : (nat, text) -> (FunctionCallResult);
   airdrop : (vec text, opt vec nat) -> (FunctionCallResult);
   burn_nft : (nat) -> (FunctionCallResult);
@@ -207,7 +207,7 @@ service : () -> {
   getTokens : () -> (vec record { nat32; Metadata }) query;
   get_all_nfts : () -> (vec record { nat; Nft }) query;
   get_asset_categories : () -> (vec record { text; AssetCategory }) query;
-  get_assets : (opt text) -> (vec record { text; text }) query;
+  get_assets : (opt text) -> (vec record { text; text; text }) query;
   get_canister_metadata : () -> (CanisterMeta) query;
   get_cycles : () -> (nat64) query;
   get_dynamic_traits_number : (nat, text) -> (FunctionCallResultFloat64) query;
@@ -232,13 +232,16 @@ service : () -> {
   mint_many_NFTs : (vec NftForMinting) -> (ManyMintResult);
   mint_nft : (NftForMinting) -> (FunctionCallResult);
   remove_asset : (nat, opt text) -> (FunctionCallResult);
+  remove_collection_collaborator : (text) -> (FunctionCallResult);
+  remove_collection_owner : (text) -> (FunctionCallResult);
+  remove_collection_super_admin : (text) -> (FunctionCallResult);
+  remove_royalty_address : (text) -> (FunctionCallResult);
   set_burn_address : (text) -> (FunctionCallResult);
   set_canister_metadata : (SetCanister) -> (FunctionCallResult);
   set_collection_name : (text) -> (FunctionCallResult);
-  set_collection_owner : (text) -> (FunctionCallResult);
-  set_creator_royalty : (nat) -> (FunctionCallResult);
   set_license : (text) -> (FunctionCallResult);
   set_max_number_of_nfts_to_mint : (nat) -> (FunctionCallResult);
+  set_new_creator_royalty : (vec record { text; nat }) -> (FunctionCallResult);
   set_number_trait : (UpdateMetadataNumber) -> (FunctionCallResult);
   set_text_trait : (UpdateMetadataText) -> (FunctionCallResult);
   tokens_ext : (text) -> (TokensExtResult) query;
