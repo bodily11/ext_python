@@ -1,4 +1,4 @@
-from kybra import TypedDict,nat,query,update,Record,ic,blob,nat16,nat64,pre_upgrade,post_upgrade,init,opt,Principal,Variant,nat8,nat32,float64,Func,Query,method,Canister,Async,CanisterResult
+from kybra import TypedDict,Canister,CanisterResult,ic,nat,nat8,nat16,nat32,nat64,blob,opt,float64,Principal,Variant,Record,Query,Async,pre_upgrade,post_upgrade,init,query,update,method,Func
 import math
 from typing import TypeAlias
 
@@ -226,7 +226,7 @@ db: Database = {
         'canister_metadata':{
             'collection_name': '',
             'royalty': [],
-            'super_admin':[''],
+            'super_admin':['2sr56-kadmk-wfai7-753z7-yo6rd-a4d2f-ghedf-wrkvd-rav3s-2vcfm-wae'],
             'owners':[''],
             'collaborators': [''],
             'burn_address': '0000000000000000000000000000000000000000000000000000000000000001',
@@ -754,21 +754,40 @@ def set_new_creator_royalty(royalty_array: list[tuple[str, nat]]) -> FunctionCal
 @update
 def remove_royalty_address(royalty_address: str) -> FunctionCallResult:
     if str(ic.caller()) in get_permissions('level_2'):
+        address = sanitize_address(royalty_address)
         royalty_array = db['canister_metadata']['royalty']
-        for royalty in royalty_array:
-            if royalty[0] == royalty_address:
-                db['canister_metadata']['royalty'].remove(royalty)
-        return {'ok':f'Royalty address {royalty_address} successfully removed.'}
+        if len(address) == 64:
+            for royalty in royalty_array:
+                if royalty[0] == address:
+                    db['canister_metadata']['royalty'].remove(royalty)
+                    return {'ok':f'Royalty address {address} successfully removed.'}
+            else:
+                return {'err':'Sorry, this address was not found in the royalty array.'}
+        else:
+            return {'err':f'Sorry, this address is length {len(address)} when it should be length 64.'}
     else:
-        return {'err':'Sorry, only admin can call remove royalty address.'}
+        return {'err':'Sorry, only super admin or owner can call remove royalty address.'}
 
 @update
 def add_royalty_address(royalty_info: tuple[str, nat]) -> FunctionCallResult:
+    new_royalty_info: list[tuple[str, nat]] = []
     if str(ic.caller()) in get_permissions('level_2'):
-        db['canister_metadata']['royalty'].append(royalty_info)
-        return {'ok':f'Royalty address {royalty_info[0]} successfully added.'}
+        address = sanitize_address(royalty_info[0])
+        if len(address) == 64:
+            if royalty_info[1] > 500 and royalty_info[1] < 50000:
+                new_royalty_info.append((address, royalty_info[1]))
+                db['canister_metadata']['royalty'].append(new_royalty_info[0])
+                return {'ok':f'Royalty address {royalty_info[0]} successfully added.'}
+            else:
+                return {'err':'Sorry, your royalty percentage does not fall within 500 (0.5%) and 50k (50%).'}
+        else:
+            return {'err':f'Sorry, this address is not the correct length of 64. It is {len(address)}.'}
     else:
-        return {'err':'Sorry, only admin can call add royalty address.'}
+        return {'err':'Sorry, only super admin or owners can call add royalty address.'}
+
+@query
+def get_royalty_addresses() -> list[tuple[str, nat]]:
+    return db['canister_metadata']['royalty']
 
 @update
 def add_collection_super_admin(super_admin: str) -> FunctionCallResult:
@@ -776,11 +795,14 @@ def add_collection_super_admin(super_admin: str) -> FunctionCallResult:
     Set a new collection owner. Not used anywhere except should be used as the creator royalty address.
     '''
     if str(ic.caller()) in get_permissions('level_3'):
-        db['canister_metadata']['owners'].append(str(super_admin))
-        new_event('Add Super Admin',f"New collection owner added {super_admin}.")
-        return {'ok':f'Collection owner {super_admin} added successfully.'}
+        super_admin = super_admin.strip()
+        if len(super_admin) == 27 or len(super_admin) == 63:
+            db['canister_metadata']['super_admin'].append(super_admin)
+            new_event('Add Super Admin',f"New collection owner added {super_admin}.")
+            return {'ok':f'Collection super admin {super_admin} added successfully.'}
+        return {'err':'The principal you are trying to add is not the correct length.'}
     else:
-        return {'err':'Only admin can call add collection super admin.'}
+        return {'err':'Only super admin can call add collection super admin.'}
 
 @update
 def remove_collection_super_admin(super_admin: str) -> FunctionCallResult:
@@ -788,11 +810,18 @@ def remove_collection_super_admin(super_admin: str) -> FunctionCallResult:
     Set a new collection owner. Not used anywhere except should be used as the creator royalty address.
     '''
     if str(ic.caller()) in get_permissions('level_3'):
-        db['canister_metadata']['owners'].remove(super_admin)
-        new_event('Remove Owner',f"Collection owner {super_admin} removed from owners array.")
-        return {'ok':f'Collection owner {super_admin} removed successfully.'}
+        if super_admin in db['canister_metadata']['super_admin']:
+            db['canister_metadata']['super_admin'].remove(super_admin)
+            new_event('Remove Super Admin',f"Collection super admin {super_admin} removed from super admin array.")
+            return {'ok':f'Collection super admin {super_admin} removed successfully.'}
+        else:
+            return {'err':'Sorry, that principal is not listed as a current super admin.'}
     else:
         return {'err':'Only admin can call remove collection owner.'}
+
+@query
+def get_collection_super_admin() -> list[str]:
+    return db['canister_metadata']['super_admin']
 
 @update
 def add_collection_owner(collection_owner: str) -> FunctionCallResult:
@@ -800,9 +829,12 @@ def add_collection_owner(collection_owner: str) -> FunctionCallResult:
     Set a new collection owner. Not used anywhere except should be used as the creator royalty address.
     '''
     if str(ic.caller()) in get_permissions('level_2'):
-        db['canister_metadata']['owners'].append(str(collection_owner))
-        new_event('Add Owner',f"New collection owner added {collection_owner}.")
-        return {'ok':f'Collection owner {collection_owner} added successfully.'}
+        collection_owner = collection_owner.strip()
+        if len(collection_owner) == 27 or len(collection_owner) == 63:
+            db['canister_metadata']['owners'].append(str(collection_owner))
+            new_event('Add Owner',f"New collection owner added {collection_owner}.")
+            return {'ok':f'Collection owner {collection_owner} added successfully.'}
+        return {'err':'The principal you are trying to add is not the correct length.'}
     else:
         return {'err':'Only admin can call add collection owner.'}
 
@@ -812,11 +844,18 @@ def remove_collection_owner(collection_owner: str) -> FunctionCallResult:
     Set a new collection owner. Not used anywhere except should be used as the creator royalty address.
     '''
     if str(ic.caller()) in get_permissions('level_2'):
-        db['canister_metadata']['owners'].remove(collection_owner)
-        new_event('Remove Owner',f"Collection owner {collection_owner} removed from owners array.")
-        return {'ok':f'Collection owner {collection_owner} removed successfully.'}
+        if collection_owner in db['canister_metadata']['owners']:
+            db['canister_metadata']['owners'].remove(collection_owner)
+            new_event('Remove Owner',f"Collection owner {collection_owner} removed from owners array.")
+            return {'ok':f'Collection owner {collection_owner} removed successfully.'}
+        else:
+            return {'err':'Sorry, that principal is not listed as a current owner.'}
     else:
         return {'err':'Only admin can call remove collection owner.'}
+
+@query
+def get_collection_owners() -> list[str]:
+    return db['canister_metadata']['owners']
 
 @update
 def add_collection_collaborator(collaborator: str) -> FunctionCallResult:
@@ -824,9 +863,13 @@ def add_collection_collaborator(collaborator: str) -> FunctionCallResult:
     Set a new collection owner. Not used anywhere except should be used as the creator royalty address.
     '''
     if str(ic.caller()) in get_permissions('level_2'):
-        db['canister_metadata']['collaborators'].append(str(collaborator))
-        new_event('Add Owner',f"New collection owner added {collaborator}.")
-        return {'ok':f'Collection owner {collaborator} added successfully.'}
+        collaborator = collaborator.strip()
+        if len(collaborator) == 27 or len(collaborator) == 63:
+            db['canister_metadata']['collaborators'].append(collaborator)
+            new_event('Add Collaborator',f"New collection collaborator added {collaborator}.")
+            return {'ok':f'Collection collaborator {collaborator} added successfully.'}
+        else:
+            return {'err':'The principal you are trying to add is not the correct length.'}
     else:
         return {'err':'Only admin can call add collaborators.'}
 
@@ -836,11 +879,18 @@ def remove_collection_collaborator(collaborator: str) -> FunctionCallResult:
     Set a new collection owner. Not used anywhere except should be used as the creator royalty address.
     '''
     if str(ic.caller()) in get_permissions('level_2'):
-        db['canister_metadata']['collaborators'].remove(collaborator)
-        new_event('Remove Owner',f"Collection owner {collaborator} removed from owners array.")
-        return {'ok':f'Collection owner {collaborator} removed successfully.'}
+        if collaborator in db['canister_metadata']['collaborators']:
+            db['canister_metadata']['collaborators'].remove(collaborator)
+            new_event('Remove Owner',f"Collection collaborator {collaborator} removed from collaborators array.")
+            return {'ok':f'Collection collaborator {collaborator} removed successfully.'}
+        else:
+            return {'err':'Sorry, that principal is not listed as a current collaborator.'}
     else:
         return {'err':'Only admin can call remove collaborators.'}
+
+@query
+def get_collection_collaborators() -> list[str]:
+    return db['canister_metadata']['collaborators']
 
 @update
 def set_license(license: str) -> FunctionCallResult:

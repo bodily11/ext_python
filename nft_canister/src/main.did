@@ -209,6 +209,9 @@ service : () -> {
   get_asset_categories : () -> (vec record { text; AssetCategory }) query;
   get_assets : (opt text) -> (vec record { text; text; text }) query;
   get_canister_metadata : () -> (CanisterMeta) query;
+  get_collection_collaborators : () -> (vec text) query;
+  get_collection_owners : () -> (vec text) query;
+  get_collection_super_admin : () -> (vec text) query;
   get_cycles : () -> (nat64) query;
   get_dynamic_traits_number : (nat, text) -> (FunctionCallResultFloat64) query;
   get_dynamic_traits_text : (nat, text) -> (FunctionCallResult) query;
@@ -218,6 +221,7 @@ service : () -> {
   get_rarity_data : (text) -> (vec record { nat; float64 }) query;
   get_rarity_score : (nat, text) -> (FunctionCallResultFloat64) query;
   get_registry : () -> (vec record { nat; text }) query;
+  get_royalty_addresses : () -> (vec record { text; nat }) query;
   get_static_traits_number : (nat, text) -> (FunctionCallResultFloat64) query;
   get_static_traits_text : (nat, text) -> (FunctionCallResult) query;
   get_token_id : (nat) -> (FunctionCallResult) query;
