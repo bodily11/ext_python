@@ -1,15 +1,14 @@
-type AssetCategory = record {
-  category_name : text;
-  category_type : Conditions;
-  priority : nat;
-};
 type AssetForUpload = record {
-  thumbnail_bytes : vec nat8;
+  thumbnail_bytes : opt vec nat8;
   asset_bytes : vec nat8;
+  asset_index : opt nat;
+  asset_view : opt text;
+  reveal_category : opt text;
+  chunk : opt nat;
   asset_file_name : text;
   asset_file_type : text;
-  thumb_file_name : text;
-  thumb_file_type : text;
+  thumb_file_name : opt text;
+  thumb_file_type : opt text;
 };
 type CallbackStrategy = record {
   token : Token;
@@ -53,6 +52,10 @@ type Conditions = variant {
 type EditAsset = record {
   thumbnail_bytes : opt vec nat8;
   asset_bytes : opt vec nat8;
+  asset_index : nat;
+  asset_view : opt text;
+  reveal_category : opt text;
+  chunk : opt nat;
   asset_file_name : opt text;
   asset_file_type : opt text;
   thumb_file_name : opt text;
@@ -121,6 +124,11 @@ type NftMetadata = record {
   description : text;
   rarity_scores : opt vec record { text; float64 };
   license : text;
+};
+type RevealCategory = record {
+  category_name : text;
+  category_type : Conditions;
+  priority : nat;
 };
 type SetCanister = record {
   web : opt text;
@@ -202,14 +210,13 @@ service : () -> {
   airdrop : (vec text, opt vec nat) -> (FunctionCallResult);
   burn_nft : (nat) -> (FunctionCallResult);
   compute_rarity : () -> (FunctionCallResult);
-  create_asset_category : (AssetCategory) -> (FunctionCallResult);
-  edit_asset : (EditAsset, opt nat, nat, opt text) -> (FunctionCallResult);
+  create_reveal_category : (opt text, RevealCategory) -> (FunctionCallResult);
+  edit_asset : (EditAsset) -> (FunctionCallResult);
   edit_nft : (Nft) -> (FunctionCallResult);
   getTokens : () -> (vec record { nat32; Metadata }) query;
   get_all_nfts : () -> (vec record { nat; Nft }) query;
-  get_asset : (nat, text, nat) -> (vec nat8) query;
-  get_asset_categories : () -> (vec record { text; AssetCategory }) query;
-  get_assets : (opt text) -> (vec record { text; text; text }) query;
+  get_asset : (nat, text, text, nat) -> (vec nat8) query;
+  get_assets : (opt text, opt text) -> (vec record { text; text; text }) query;
   get_canister_metadata : () -> (CanisterMeta) query;
   get_collection_collaborators : () -> (vec text) query;
   get_collection_owners : () -> (vec text) query;
@@ -223,6 +230,9 @@ service : () -> {
   get_rarity_data : (text) -> (vec record { nat; float64 }) query;
   get_rarity_score : (nat, text) -> (FunctionCallResultFloat64) query;
   get_registry : () -> (vec record { nat; text }) query;
+  get_reveal_categories : (opt text) -> (
+      vec record { text; RevealCategory },
+    ) query;
   get_royalty_addresses : () -> (vec record { text; nat }) query;
   get_static_traits_number : (nat, text) -> (FunctionCallResultFloat64) query;
   get_static_traits_text : (nat, text) -> (FunctionCallResult) query;
@@ -237,7 +247,7 @@ service : () -> {
   metadata : (text) -> (MetadataResponse) query;
   mint_many_NFTs : (vec NftForMinting) -> (ManyMintResult);
   mint_nft : (NftForMinting) -> (FunctionCallResult);
-  remove_asset : (nat, opt text) -> (FunctionCallResult);
+  remove_asset : (nat, opt text, opt text) -> (FunctionCallResult);
   remove_collection_collaborator : (text) -> (FunctionCallResult);
   remove_collection_owner : (text) -> (FunctionCallResult);
   remove_collection_super_admin : (text) -> (FunctionCallResult);
@@ -252,11 +262,9 @@ service : () -> {
   set_text_trait : (UpdateMetadataText) -> (FunctionCallResult);
   tokens_ext : (text) -> (TokensExtResult) query;
   transfer : (TransferRequest) -> (TransferResponse);
-  trigger_reveal_off : (text) -> (FunctionCallResult);
-  trigger_reveal_on : (text) -> (FunctionCallResult);
+  trigger_reveal_off : (opt text, text) -> (FunctionCallResult);
+  trigger_reveal_on : (opt text, text) -> (FunctionCallResult);
   unmint_nft : (nat) -> (FunctionCallResult);
-  upload_asset : (AssetForUpload, opt nat, opt nat, opt text) -> (
-      FunctionCallResultNat,
-    );
+  upload_asset : (AssetForUpload) -> (FunctionCallResultNat);
   who_am_i : () -> (text) query;
 }

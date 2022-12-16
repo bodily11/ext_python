@@ -162,9 +162,13 @@ class AssetForUpload(Record):
     asset_file_name: str
     asset_bytes: blob
     asset_file_type: str
-    thumb_file_name: str
-    thumbnail_bytes: blob
-    thumb_file_type: str
+    thumb_file_name: opt[str]
+    thumbnail_bytes: opt[blob]
+    thumb_file_type: opt[str]
+    chunk: opt[nat]
+    asset_index: opt[nat]
+    reveal_category: opt[str]
+    asset_view: opt[str]
 
 class EditAsset(Record):
     asset_file_name: opt[str]
@@ -173,6 +177,14 @@ class EditAsset(Record):
     thumb_file_name: opt[str]
     thumbnail_bytes: opt[blob]
     thumb_file_type: opt[str]
+    chunk: opt[nat]
+    asset_index: nat
+    reveal_category: opt[str]
+    asset_view: opt[str]
+
+class AssetView(Record):
+    view_name: str
+    view_file_type: str
 
 # class RepeatedTimeCondition(Record):
 #     start: nat
@@ -194,7 +206,7 @@ class Conditions(Variant, total=False):
     # data_condition: DataCondition
     manual_condition: ManualCondition
 
-class AssetCategory(Record):
+class RevealCategory(Record):
     category_type: Conditions
     priority: nat
     category_name: str
@@ -205,9 +217,10 @@ class Database(TypedDict):
     nfts: dict[nat, Nft]
     transactions: list[TransferEvent]
     events: list[Event]
-    assets: dict[nat,dict[str,Asset]]
+    assets: dict[nat,dict[str,dict[str,Asset]]] # asset index, asset type, reveal category
     all_rarity_scores: dict[str, dict[nat, float64]]
-    asset_categories: dict[str, AssetCategory]
+    asset_views: dict[str,AssetView]
+    reveal_categories: dict[str, dict[str,RevealCategory]] # asset view, reveal category name
     canister_metadata: CanisterMeta
 
 class StableStorage(TypedDict):
@@ -223,7 +236,8 @@ db: Database = {
         'events':[],
         'assets':{},
         'all_rarity_scores':{},
-        'asset_categories': {},
+        'reveal_categories': {},
+        'asset_views':{},
         'canister_metadata':{
             'collection_name': '',
             'royalty': [],
@@ -318,44 +332,78 @@ def post_upgrade_():
     new_event('Upgrade','Canister was upgraded')
 
 @query
-def get_asset_categories() -> list[tuple[str, AssetCategory]]:
-    return list(db['asset_categories'].items())
+def get_reveal_categories(asset_view: opt[str]) -> list[tuple[str, RevealCategory]]:
+    if asset_view is None:
+        asset_view = 'image'
+    return list(db['reveal_categories'][asset_view].items())
 
 @update
-def create_asset_category(asset_category: AssetCategory) -> FunctionCallResult:
-    category_name = asset_category['category_name']
-    db['asset_categories'][category_name] = asset_category
-    return {'ok':f'You successfully added the new asset category {category_name}.'}
+def create_reveal_category(asset_view: opt[str], reveal_category: RevealCategory) -> FunctionCallResult:
+    if asset_view is None:
+        asset_view = 'image'
+    category_name = reveal_category['category_name']
+    if asset_view not in db['reveal_categories']:
+        db['reveal_categories'][asset_view] = {}
+    db['reveal_categories'][asset_view][category_name] = reveal_category
+    return {'ok':f'You successfully added the new asset category "{category_name}" to view "{asset_view}".'}
 
 @update
-def trigger_reveal_on(asset_category_name: str) -> FunctionCallResult:
-    condition = db['asset_categories'][asset_category_name]['category_type']
+def trigger_reveal_on(asset_view: opt[str], reveal_category_name: str) -> FunctionCallResult:
+    if asset_view is None:
+        asset_view = 'image'
+    if asset_view not in db['reveal_categories']:
+        db['reveal_categories'][asset_view] = {}
+    condition = db['reveal_categories'][asset_view][reveal_category_name]['category_type']
     if 'manual_condition' in condition:
         condition['manual_condition']['display_flag'] = True
-        return {'ok':f'Display for {asset_category_name} was successfully switched to True.'}
+        return {'ok':f'Display for "{reveal_category_name}" was successfully switched to True.'}
     else:
-        return {'err':f'Sorry, {asset_category_name} is not a manually triggered condition and cannot be switched to True.'}
+        return {'err':f'Sorry, "{reveal_category_name}" is not a manually triggered condition and cannot be switched to True.'}
 
 @update
-def trigger_reveal_off(asset_category_name: str) -> FunctionCallResult:
-    condition = db['asset_categories'][asset_category_name]['category_type']
+def trigger_reveal_off(asset_view: opt[str], reveal_category_name: str) -> FunctionCallResult:
+    if asset_view is None:
+        asset_view = 'image'
+    if asset_view not in db['reveal_categories']:
+        db['reveal_categories'][asset_view] = {}
+    condition = db['reveal_categories'][asset_view][reveal_category_name]['category_type']
     if 'manual_condition' in condition:
         condition['manual_condition']['display_flag'] = False
-        return {'ok':f'Display for {asset_category_name} was successfully switched to False.'}
+        return {'ok':f'Display for "{reveal_category_name}" was successfully switched to False.'}
     else:
-        return {'err':f'Sorry, {asset_category_name} is not a manually triggered condition and cannot be switched to False.'}
+        return {'err':f'Sorry, "{reveal_category_name}" is not a manually triggered condition and cannot be switched to False.'}
 
-def determine_asset_category() -> str:
+# @update
+# def create_new_asset_view(asset_view: AssetView) -> FunctionCallResult:
+#     view_name = asset_view['view_name']
+#     db['asset_views'][view_name] = asset_view
+#     return {'ok':f'Asset view {view_name} successfully created.'}
+
+# @update
+# def remove_asset_view(view_name: str) -> FunctionCallResult:
+#     if view_name in db['asset_views']:
+#         del db['asset_views'][view_name]
+#         return {'ok':f'Asset view {view_name} successfully deleted.'}
+#     else:
+#         return {'err':f'Asset view {view_name} could not be found.'}
+
+def determine_reveal_category(asset_view: str) -> str:
     all_matching_conditions: list[tuple[str,nat]] = []
     current_timestamp = ic.time()
-    for asset_category_name,asset_category in db['asset_categories'].items():
-        condition = asset_category['category_type']
+    if asset_view not in db['reveal_categories']:
+        db['reveal_categories'][asset_view] = {}
+    for reveal_category_name,reveal_category in db['reveal_categories'][asset_view].items():
+        condition = reveal_category['category_type']
         if 'manual_condition' in condition:
             if condition['manual_condition']['display_flag']:
-                all_matching_conditions.append((asset_category_name,db['asset_categories'][asset_category_name]['priority']))
+                if asset_view not in db['reveal_categories']:
+                    db['reveal_categories'][asset_view] = {}
+                all_matching_conditions.append((reveal_category_name,db['reveal_categories'][asset_view][reveal_category_name]['priority']))
         if 'single_time_condition' in condition:
             if current_timestamp > condition['single_time_condition']['change_after']:
-                all_matching_conditions.append((asset_category_name,db['asset_categories'][asset_category_name]['priority']))
+                if asset_view not in db['reveal_categories']:
+                    db['reveal_categories'][asset_view] = {}
+                all_matching_conditions.append((reveal_category_name,db['reveal_categories'][asset_view][reveal_category_name]['priority']))
     if len(all_matching_conditions) > 0:
         final_condition = max(all_matching_conditions,key=lambda item:item[1])
         return final_condition[0]
@@ -396,14 +444,16 @@ def get_events() -> list[Event]:
     return db['events']
 
 @query
-def get_assets(asset_category: opt[str]) -> list[tuple[str,str,str]]:
+def get_assets(reveal_category: opt[str], asset_view: opt[str]) -> list[tuple[str,str,str]]:
     '''
     Returns a list of all assets. Assets are added when they are uploaded to the canister for the first time.
     '''
-    if asset_category is None:
-        asset_category = 'start'
-    all_asset_categories = [(str(x[0]),x[1][asset_category]['asset_file_name'],x[1][asset_category]['thumb_file_name']) for x in db['assets'].items() if asset_category in x[1]]
-    return all_asset_categories
+    if asset_view is None:
+        asset_view = 'image'
+    if reveal_category is None:
+        reveal_category = 'start'
+    all_reveal_categories = [(str(x[0]),x[1][asset_view][reveal_category]['asset_file_name'],x[1][asset_view][reveal_category]['thumb_file_name']) for x in db['assets'].items() if (asset_view in x[1] and reveal_category in x[1][asset_view])]
+    return all_reveal_categories
 
 @query
 def get_transactions() -> list[TransferEvent]:
@@ -913,13 +963,20 @@ def set_license(license: str) -> FunctionCallResult:
         return {'err':'Only admin can call set license.'}
 
 @update
-def upload_asset(asset: AssetForUpload, chunk: opt[nat], asset_index: opt[nat], asset_category: opt[str]) -> FunctionCallResultNat:
+def upload_asset(asset: AssetForUpload) -> FunctionCallResultNat:
     '''
-    Uploads a base64 string raw asset to the assets table.
+    Uploads a bytes asset to the assets table.
     '''
+    reveal_category = asset['reveal_category']
+    chunk = asset['chunk']
+    asset_index = asset['asset_index']
+    asset_view = asset['asset_view']
     if str(ic.caller()) in get_permissions('level_1'):
-        if asset_category is None:
-            asset_category = 'start'
+        if reveal_category is None:
+            reveal_category = 'start'
+        if asset_view is None:
+            asset_view = 'image'
+
         if chunk == 0 or chunk is None:
             if asset_index is None:
                 if len(db['assets']) == 0:
@@ -928,102 +985,124 @@ def upload_asset(asset: AssetForUpload, chunk: opt[nat], asset_index: opt[nat], 
                     asset_index = max(list(db['assets'].keys())) + 1
             if asset_index not in db['assets']:
                 db['assets'][asset_index] = {}
-            db['assets'][asset_index][asset_category] = {
+            if asset_view not in db['assets'][asset_index]:
+                db['assets'][asset_index][asset_view] = {}
+
+            db['assets'][asset_index][asset_view][reveal_category] = {
                 'asset_file_name':asset['asset_file_name'],
                 'asset_bytes':[asset['asset_bytes']],
                 'asset_file_type':asset['asset_file_type'],
-                'thumb_file_name':asset['thumb_file_name'],
-                'thumbnail_bytes':asset['thumbnail_bytes'],
-                'thumb_file_type':asset['thumb_file_type']
+                'thumb_file_name':asset['thumb_file_name'] if asset['thumb_file_name'] else 'default',
+                'thumbnail_bytes':asset['thumbnail_bytes'] if asset['thumbnail_bytes'] else bytes(),
+                'thumb_file_type':asset['thumb_file_type'] if asset['thumb_file_type'] else 'png'
             }
-            new_event('Raw asset was uploaded',f"Raw asset {asset_index} was uploaded.")
+            new_event('Asset was uploaded',f"Asset {asset_index} was uploaded.")
             return {'ok':asset_index}
         else:
             if asset_index is not None:
-                db['assets'][asset_index][asset_category]['asset_bytes'].append(asset['asset_bytes'])
+                if asset_view not in db['assets'][asset_index]:
+                    db['assets'][asset_index][asset_view] = {}
+                db['assets'][asset_index][asset_view][reveal_category]['asset_bytes'].append(asset['asset_bytes'])
                 return {'ok':chunk}
             else:
                 return {'err':'When passing a chunk greater than 0 you must pass in an asset index'}
     else:
-        return {'err':'Only admin can call upload raw asset.'}
+        return {'err':'Only admin can call upload asset.'}
 
 @query
-def get_asset(asset_index: nat, asset_category: str, chunk: nat) -> blob:
+def get_asset(asset_index: nat, reveal_category: str, asset_view: str, chunk: nat) -> blob:
     if asset_index in db['assets']:
-        if asset_category in db['assets'][asset_index]:
-            return db['assets'][asset_index][asset_category]['asset_bytes'][chunk]
+        if reveal_category in db['assets'][asset_index]:
+            if asset_view not in db['assets'][asset_index]:
+                    db['assets'][asset_index][asset_view] = {}
+            return db['assets'][asset_index][asset_view][reveal_category]['asset_bytes'][chunk]
         else:
             return bytes()
     else:
         return bytes()
 
 @update
-def edit_asset(asset: EditAsset, chunk: opt[nat], asset_index: nat, asset_category: opt[str]) -> FunctionCallResult:
+def edit_asset(asset: EditAsset) -> FunctionCallResult:
     '''
-    Edits an existing raw asset in the raw assets table.
+    Edits an existing asset in the assets table.
     '''
+    reveal_category = asset['reveal_category']
+    chunk = asset['chunk']
+    asset_index = asset['asset_index']
+    asset_view = asset['asset_view']
+
     if str(ic.caller()) in get_permissions('level_1'):
-        if asset_category is None:
-            asset_category = 'start'
+        if reveal_category is None:
+            reveal_category = 'start'
+        if asset_view is None:
+            asset_view = 'image'
         if chunk == 0 or chunk is None:
             if asset_index in db['assets']:
-                existing_asset = db['assets'][asset_index][asset_category]
+                if asset_view not in db['assets'][asset_index]:
+                    db['assets'][asset_index][asset_view] = {}
+                existing_asset = db['assets'][asset_index][asset_view][reveal_category]
 
                 if asset['asset_bytes']:
                     existing_asset['asset_bytes'] = [asset['asset_bytes']]
-                    new_event('Edit Raw Asset',f"Raw asset {asset_index} was changed.")
+                    new_event('Edit Asset',f"Asset {asset_index} was changed.")
 
                 if asset['thumbnail_bytes']:
                     existing_asset['thumbnail_bytes'] = asset['thumbnail_bytes']
-                    new_event('Edit Raw Thumbnail',f"Raw asset thumbnail {asset_index} was changed.")
+                    new_event('Edit Thumbnail',f"Asset thumbnail {asset_index} was changed.")
                         
                 if asset['asset_file_name']:
                     existing_asset['asset_file_name'] = asset['asset_file_name']
-                    new_event('Edit Raw Asset Filename',f"Raw asset {asset_index} filename was changed from '{db['assets'][asset_index][asset_category]['asset_file_name']}' to '{asset['asset_file_name']}'.")
+                    new_event('Edit Asset Filename',f"Asset {asset_index} filename was changed from '{db['assets'][asset_index][asset_view][reveal_category]['asset_file_name']}' to '{asset['asset_file_name']}'.")
 
                 if asset['thumb_file_name']:
                     existing_asset['thumb_file_name'] = asset['thumb_file_name']
-                    new_event('Edit Raw Asset Filename',f"Raw asset {asset_index} filename was changed from '{db['assets'][asset_index][asset_category]['thumb_file_name']}' to '{asset['thumb_file_name']}'.")
+                    new_event('Edit Asset Filename',f"Asset {asset_index} filename was changed from '{db['assets'][asset_index][asset_view][reveal_category]['thumb_file_name']}' to '{asset['thumb_file_name']}'.")
 
                 if asset['asset_file_type']:
                     existing_asset['asset_file_type'] = asset['asset_file_type']
-                    new_event('Edit Raw Asset File Type',f"Raw asset {asset_index} file_type was changed from '{db['assets'][asset_index][asset_category]['asset_file_type']}' to '{asset['asset_file_type']}'.")
+                    new_event('Edit Asset File Type',f"Asset {asset_index} file_type was changed from '{db['assets'][asset_index][asset_view][reveal_category]['asset_file_type']}' to '{asset['asset_file_type']}'.")
                 
                 if asset['thumb_file_type']:
                     existing_asset['thumb_file_type'] = asset['thumb_file_type']
-                    new_event('Edit Raw Asset File Type',f"Raw asset {asset_index} file_type was changed from '{db['assets'][asset_index][asset_category]['thumb_file_type']}' to '{asset['thumb_file_type']}'.")
+                    new_event('Edit Asset File Type',f"Asset {asset_index} file_type was changed from '{db['assets'][asset_index][asset_view][reveal_category]['thumb_file_type']}' to '{asset['thumb_file_type']}'.")
             
-                db['assets'][asset_index][asset_category] = existing_asset
+                db['assets'][asset_index][asset_view][reveal_category] = existing_asset
                 return {'ok':'Asset successfully updated'}
             else:
                 return {'err':'Sorry, this asset index does not exist so you cannot edit it.'}
         else:
             if asset['asset_bytes']:
-                db['assets'][asset_index][asset_category]['asset_bytes'].append(asset['asset_bytes'])
-                return {'ok':f"You successfully added an asset chunk to your existing asset. Length now {len(db['assets'][asset_index][asset_category]['asset_bytes'])}"}
+                db['assets'][asset_index][asset_view][reveal_category]['asset_bytes'].append(asset['asset_bytes'])
+                return {'ok':f"You successfully added an asset chunk to your existing asset. Length now {len(db['assets'][asset_index][asset_view][reveal_category]['asset_bytes'])}"}
             else:
                 return {'err':'If you supply a chunk you must also supply an asset_bytes.'}
     else:
         return {'err':'Only admin can call edit asset.'}
 
 @update
-def remove_asset(asset_index: nat, asset_category: opt[str]) -> FunctionCallResult:
+def remove_asset(asset_index: nat, reveal_category: opt[str], asset_view: opt[str]) -> FunctionCallResult:
     '''
-    Removes a raw asset from the raw_assets table. This removes the index from the raw assets array which cannot be replaced.
+    Removes an asset from the assets table. This removes the index from the assets array which cannot be replaced.
     '''
     if str(ic.caller()) in get_permissions('level_1'):
         if asset_index in db['assets']:
-            if asset_category is None:
+            if asset_view is None:
                 del db['assets'][asset_index]
+                new_event('Remove Asset',f"Asset {asset_index} was removed.")
+            elif reveal_category is None:
+                del db['assets'][asset_index][asset_view]
+                new_event('Remove Asset',f"Asset {asset_index} of type {asset_view} was removed.")
             else:
-                del db['assets'][asset_index][asset_category]
-            new_event('Remove Asset',f"Asset {asset_index} from {asset_category} was removed.")
+                if asset_view not in db['assets'][asset_index]:
+                    db['assets'][asset_index][asset_view] = {}
+                del db['assets'][asset_index][asset_view][reveal_category]
+                new_event('Remove Asset',f"Asset {asset_index} of type {asset_view} and reveal category {reveal_category} was removed.")
             
-            return {'ok':'Raw asset successfully deleted.'}
+            return {'ok':'Asset successfully deleted.'}
         else:
             return {'err':'Sorry that asset index does not exist.'}
     else:
-        return {'err':'You must be an admin to call remove raw asset.'}
+        return {'err':'You must be an admin to call remove asset.'}
 
 @update
 def mint_many_NFTs(nft_objects: list[NftForMinting]) -> ManyMintResult:
@@ -1043,7 +1122,10 @@ def mint_many_NFTs(nft_objects: list[NftForMinting]) -> ManyMintResult:
                 to_address = sanitize_address(nft_object['to_address'])
                 
                 if not nft_index:
-                    nft_index = len(db['registry'])
+                    if len(db['registry']) == 0:
+                        nft_index = 0
+                    else:
+                        nft_index = max(list(db['registry'].keys())) + 1
                 
                 if nft_index not in db['registry']:
                     if len(db['registry']) < db['canister_metadata']['max_number_of_nfts_to_mint']:
@@ -1386,18 +1468,21 @@ def http_request_streaming_callback(token: Token) -> StreamingCallbackHttpRespon
     """
     To return assets bigger than the 2MB message limit, you have to chunk assets and iteratively return them.
     """
-    asset_category = str(token['arbitrary_data'].split(':')[0])
-    asset_index = int(token['arbitrary_data'].split(':')[1])
-    chunk_num = int(token['arbitrary_data'].split(':')[2])
-    if len(db['assets'][asset_index][asset_category]['asset_bytes']) - 1 > chunk_num:
+    token_array = token['arbitrary_data'].split(':')
+    asset_index = int(token_array[0])
+    asset_view = str(token_array[1])
+    reveal_category = str(token_array[2])
+    chunk_num = int(token_array[3])
+
+    if len(db['assets'][asset_index][asset_view][reveal_category]['asset_bytes']) - 1 > chunk_num:
         return {
-            'body':db['assets'][asset_index][asset_category]['asset_bytes'][chunk_num],
-            'token':{'arbitrary_data':f'{asset_category}:{asset_index}:{chunk_num + 1}'}
+            'body':db['assets'][asset_index][asset_view][reveal_category]['asset_bytes'][chunk_num],
+            'token':{'arbitrary_data':f'{asset_index}:{asset_view}:{reveal_category}:{chunk_num + 1}'}
         }
     # this is the final condition, token = None means we don't have any more chunks
     else:
         return {
-            'body':db['assets'][asset_index][asset_category]['asset_bytes'][chunk_num],
+            'body':db['assets'][asset_index][asset_view][reveal_category]['asset_bytes'][chunk_num],
             'token':None
         }
 
@@ -1430,11 +1515,16 @@ def return_thumbnail_bytes(thumbnail_bytes: blob, thumb_file_type: str) -> HttpR
         'upgrade': False
     }
 
-def return_image_html(asset_url: opt[str], asset_file_type: str) -> HttpResponse:
+def return_image_html(asset_url: opt[str], asset_view: opt[str], asset_file_type: str) -> HttpResponse:
     '''
     An internal function that returns an SVG wrapper for base64 images.
     '''
     content_type = get_content_type(asset_file_type)
+    if asset_view is None:
+        asset_view = 'image'
+
+    db['asset_views'][asset_view]['view_file_type']
+
     if asset_url:
         if 'image' in content_type:
             width = 800
@@ -1444,7 +1534,7 @@ def return_image_html(asset_url: opt[str], asset_file_type: str) -> HttpResponse
             http_response_body = bytes(f'''
                 <svg xmlns="http://www.w3.org/2000/svg" xmlns:xlink="http://www.w3.org/1999/xlink" style="width: {width}px;height: {height}px;" version="1.1" id="generated" x="0px" y="0px" viewBox="0 0 {width} {height}" xml:space="preserve">
                     <g>
-                        <image href="{asset_url}"/>
+                        <image href="{asset_url}&view={asset_view}"/>
                     </g>
                 </svg>
             ''',encoding='utf-8')
@@ -1467,7 +1557,7 @@ def return_image_html(asset_url: opt[str], asset_file_type: str) -> HttpResponse
                 <html>
                 <body>
                     <video width="{width}" height="{height}" autoplay loop>
-                        <source src="{asset_url}" type="video/mp4">
+                        <source src="{asset_url}&view={asset_view}" type="video/mp4">
                         Your browser does not support the video tag.
                     </video>
                 </body>
@@ -1477,7 +1567,6 @@ def return_image_html(asset_url: opt[str], asset_file_type: str) -> HttpResponse
                 'status_code':200,
                 'headers':[
                     ('Content-Type','text/html'),
-                    ('Content-Length',str(len(http_response_body)))
                 ],
                 'body':http_response_body,
                 'streaming_strategy': None,
@@ -1500,14 +1589,14 @@ def return_image_html(asset_url: opt[str], asset_file_type: str) -> HttpResponse
             'upgrade': False
         }
 
-def return_multipart_image_html(asset_index: opt[nat], asset_bytes: opt[blob], asset_category: str, asset_file_type: str) -> HttpResponse:
+def return_multipart_image_html(asset_index: opt[nat], asset_view: str, reveal_category: str, asset_file_type: str, asset_bytes: opt[blob]) -> HttpResponse:
     '''
     An internal function that returns an SVG wrapper for base64 images.
     '''
     if asset_bytes:
         if asset_index is not None:
             if asset_file_type in ['png','jpeg','jpg','gif']:
-                if len(db['assets'][asset_index][asset_category]['asset_bytes']) > 1:
+                if len(db['assets'][asset_index][asset_view][reveal_category]['asset_bytes']) > 1:
                     # we have more than one chunk, so use http_request_streaming_callback
                     return {
                         'status_code':200,
@@ -1518,7 +1607,7 @@ def return_multipart_image_html(asset_index: opt[nat], asset_bytes: opt[blob], a
                         'body':asset_bytes,
                         'streaming_strategy': {
                             'Callback':{
-                                'token':{'arbitrary_data':f'{asset_category}:{asset_index}:1'}, #chunk num is 1 for the 2nd param
+                                'token':{'arbitrary_data':f'{asset_index}:{asset_view}:{reveal_category}:1'}, #chunk num is 1 for the 2nd param
                                 'callback':(ic.id(), 'http_request_streaming_callback')
                             }
                         },
@@ -1536,7 +1625,7 @@ def return_multipart_image_html(asset_index: opt[nat], asset_bytes: opt[blob], a
                         'upgrade': False
                     }
             elif asset_file_type in ['mp4']:
-                if len(db['assets'][asset_index][asset_category]['asset_bytes']) > 1:
+                if len(db['assets'][asset_index][reveal_category]['asset_bytes']) > 1:
                     # we have more than one chunk, so use http_request_streaming_callback
                     return {
                         'status_code':200,
@@ -1547,7 +1636,7 @@ def return_multipart_image_html(asset_index: opt[nat], asset_bytes: opt[blob], a
                         'body':asset_bytes,
                         'streaming_strategy': {
                             'Callback':{
-                                'token':{'arbitrary_data':f'{asset_category}:{asset_index}:1'}, #chunk num is 1 for the 2nd param
+                                'token':{'arbitrary_data':f'{asset_index}:{asset_view}:{reveal_category}:1'}, #chunk num is 1 for the 2nd param
                                 'callback':(ic.id(), 'http_request_streaming_callback')
                             }
                         },
@@ -1593,67 +1682,96 @@ def return_multipart_image_html(asset_index: opt[nat], asset_bytes: opt[blob], a
 def http_request(request: HttpRequest) -> HttpResponse:
     '''
     The standard http_request method following the standard specified in the IC spec.
-    Handles all branching logic needed to handle NFT indexes, EXT token identifiers, thumbnails, and raw assets.
+    Handles all branching logic needed to handle NFT indexes, EXT token identifiers, thumbnails, and assets.
     '''
     request_url = request['url']
-    asset_category = determine_asset_category()
+    params = get_request_params(request_url)
+    if 'view' in params:
+        asset_view = params['view']
+    else:
+        asset_view = 'image'
+    reveal_category = determine_reveal_category(asset_view)
 
     if 'index' in request_url and 'thumbnail' not in request_url:
-        params = get_request_params(request_url)
+        
         nft_index = int(params['index'])
+        if 'view' in params:
+            asset_view = params['view']
+        else:
+            asset_view = 'image'
         asset_url = db["nfts"][nft_index]["asset_url"]
         asset_type = db['nfts'][nft_index]['asset_type']
         if asset_url:
-            return return_image_html(asset_url, asset_type)
+            return return_image_html(asset_url, asset_view, asset_type)
         else:
-            return return_image_html(None, '')
+            return return_image_html(None, None, '')
     
     elif 'index' in request_url and 'thumbnail' in request_url:
         params = get_request_params(request_url)
         nft_index = int(params['index'])
+        if 'view' in params:
+            asset_view = params['view']
+        else:
+            asset_view = 'image'
         asset_index = db['nfts'][nft_index]['asset_index']    
         if asset_index is not None:
-            thumbnail_bytes = db['assets'][asset_index][asset_category]['thumbnail_bytes']
-            thumb_file_type = db['assets'][asset_index][asset_category]['thumb_file_type']
+            thumbnail_bytes = db['assets'][asset_index][asset_view][reveal_category]['thumbnail_bytes']
+            thumb_file_type = db['assets'][asset_index][asset_view][reveal_category]['thumb_file_type']
             return return_thumbnail_bytes(thumbnail_bytes, thumb_file_type)
         else:
-            return return_image_html(None, '')
+            return return_image_html(None, None, '')
 
     elif 'tokenid' in request_url and 'thumbnail' not in request_url:
         params = get_request_params(request_url)
         tokenid = str(params['tokenid'])
         nft_index = get_index_from_token_id(tokenid)
+        if 'view' in params:
+            asset_view = params['view']
+        else:
+            asset_view = 'image'
         asset_url = db["nfts"][nft_index]["asset_url"]
         asset_type = db['nfts'][nft_index]['asset_type']
         if asset_url:
-            return return_image_html(asset_url, asset_type)
+            return return_image_html(asset_url, asset_view, asset_type)
         else:
-            return return_image_html(None, '')
+            return return_image_html(None, None, '')
     
     elif 'tokenid' in request_url and 'thumbnail' in request_url:
         params = get_request_params(request_url)
         tokenid = str(params['tokenid'])
         nft_index = get_index_from_token_id(tokenid)
+        if 'view' in params:
+            asset_view = params['view']
+        else:
+            asset_view = 'image'
         asset_index = db['nfts'][nft_index]['asset_index']
         if asset_index is not None:
-            thumbnail_bytes = db['assets'][asset_index][asset_category]['thumbnail_bytes']
-            thumb_file_type = db['assets'][asset_index][asset_category]['thumb_file_type']
+            thumbnail_bytes = db['assets'][asset_index][asset_view][reveal_category]['thumbnail_bytes']
+            thumb_file_type = db['assets'][asset_index][asset_view][reveal_category]['thumb_file_type']
             return return_thumbnail_bytes(thumbnail_bytes, thumb_file_type)
         else:
-            return return_image_html(None, '')
+            return return_image_html(None, None, '')
     
     elif 'asset' in request_url and 'thumbnail' not in request_url:
         params = get_request_params(request_url)
         asset_index = int(params['asset'])
-        asset_bytes = db['assets'][asset_index][asset_category]['asset_bytes'][0]
-        asset_type = db['assets'][asset_index][asset_category]['asset_file_type']
-        return return_multipart_image_html(asset_index, asset_bytes, asset_category, asset_type)
+        if 'view' in params:
+            asset_view = params['view']
+        else:
+            asset_view = 'image'
+        asset_bytes = db['assets'][asset_index][asset_view][reveal_category]['asset_bytes'][0]
+        asset_type = db['assets'][asset_index][asset_view][reveal_category]['asset_file_type']
+        return return_multipart_image_html(asset_index, asset_view, reveal_category, asset_type, asset_bytes)
     
     elif 'asset' in request_url and 'thumbnail' in request_url:
         params = get_request_params(request_url)
         asset_index = int(params['asset'])
-        thumbnail_bytes = db['assets'][asset_index][asset_category]['thumbnail_bytes']
-        thumb_file_type = db['assets'][asset_index][asset_category]['thumb_file_type']
+        if 'view' in params:
+            asset_view = params['view']
+        else:
+            asset_view = 'image'
+        thumbnail_bytes = db['assets'][asset_index][asset_view][reveal_category]['thumbnail_bytes']
+        thumb_file_type = db['assets'][asset_index][asset_view][reveal_category]['thumb_file_type']
         return return_thumbnail_bytes(thumbnail_bytes, thumb_file_type)
     
     else:
