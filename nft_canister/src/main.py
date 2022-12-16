@@ -1,6 +1,7 @@
 from kybra import TypedDict,Canister,CanisterResult,ic,nat,nat8,nat16,nat32,nat64,blob,opt,float64,Principal,Variant,Record,Query,Async,pre_upgrade,post_upgrade,init,query,update,method,Func
 import math
 from typing import TypeAlias
+from twister_random import MersenneTwister #type: ignore
 
 class TraitType(Variant, total=False):
     number: float64
@@ -173,9 +174,6 @@ class EditAsset(Record):
     thumbnail_bytes: opt[blob]
     thumb_file_type: opt[str]
 
-class ManualCondition(Record):
-    display_flag: bool
-
 # class RepeatedTimeCondition(Record):
 #     start: nat
 #     duration: nat
@@ -183,6 +181,9 @@ class ManualCondition(Record):
 
 # class DataCondition(Record):
 #     transfers: opt[nat]
+
+class ManualCondition(Record):
+    display_flag: bool
 
 class SingleTimeCondition(Record):
     change_after: nat
@@ -196,7 +197,7 @@ class Conditions(Variant, total=False):
 class AssetCategory(Record):
     category_type: Conditions
     priority: nat
-    asset_category: str
+    category_name: str
 
 class Database(TypedDict):
     registry: dict[nat, str]
@@ -250,7 +251,7 @@ db: Database = {
 
 def new_event(event_type: str, description: str) -> bool:
     """
-    Adds a new event to the events table.
+    Adds a new event record to the events array.
 
 	Parameters:
 		event_type (str): The category you would like to set for this event. Allows any string.
@@ -321,6 +322,12 @@ def get_asset_categories() -> list[tuple[str, AssetCategory]]:
     return list(db['asset_categories'].items())
 
 @update
+def create_asset_category(asset_category: AssetCategory) -> FunctionCallResult:
+    category_name = asset_category['category_name']
+    db['asset_categories'][category_name] = asset_category
+    return {'ok':f'You successfully added the new asset category {category_name}.'}
+
+@update
 def trigger_reveal_on(asset_category_name: str) -> FunctionCallResult:
     condition = db['asset_categories'][asset_category_name]['category_type']
     if 'manual_condition' in condition:
@@ -329,11 +336,12 @@ def trigger_reveal_on(asset_category_name: str) -> FunctionCallResult:
     else:
         return {'err':f'Sorry, {asset_category_name} is not a manually triggered condition and cannot be switched to True.'}
 
+@update
 def trigger_reveal_off(asset_category_name: str) -> FunctionCallResult:
     condition = db['asset_categories'][asset_category_name]['category_type']
     if 'manual_condition' in condition:
         condition['manual_condition']['display_flag'] = False
-        return {'ok':f'Display for {asset_category_name} was successfully switched to True.'}
+        return {'ok':f'Display for {asset_category_name} was successfully switched to False.'}
     else:
         return {'err':f'Sorry, {asset_category_name} is not a manually triggered condition and cannot be switched to False.'}
 
@@ -394,7 +402,7 @@ def get_assets(asset_category: opt[str]) -> list[tuple[str,str,str]]:
     '''
     if asset_category is None:
         asset_category = 'start'
-    all_asset_categories = [(str(x[0]),x[1][asset_category]['asset_file_name'],x[1][asset_category]['thumb_file_name']) for x in db['assets'].items()]
+    all_asset_categories = [(str(x[0]),x[1][asset_category]['asset_file_name'],x[1][asset_category]['thumb_file_name']) for x in db['assets'].items() if asset_category in x[1]]
     return all_asset_categories
 
 @query
@@ -914,7 +922,12 @@ def upload_asset(asset: AssetForUpload, chunk: opt[nat], asset_index: opt[nat], 
             asset_category = 'start'
         if chunk == 0 or chunk is None:
             if asset_index is None:
-                asset_index = len(db['assets'])
+                if len(db['assets']) == 0:
+                    asset_index = 0
+                else:
+                    asset_index = max(list(db['assets'].keys())) + 1
+            if asset_index not in db['assets']:
+                db['assets'][asset_index] = {}
             db['assets'][asset_index][asset_category] = {
                 'asset_file_name':asset['asset_file_name'],
                 'asset_bytes':[asset['asset_bytes']],
@@ -934,6 +947,16 @@ def upload_asset(asset: AssetForUpload, chunk: opt[nat], asset_index: opt[nat], 
     else:
         return {'err':'Only admin can call upload raw asset.'}
 
+@query
+def get_asset(asset_index: nat, asset_category: str, chunk: nat) -> blob:
+    if asset_index in db['assets']:
+        if asset_category in db['assets'][asset_index]:
+            return db['assets'][asset_index][asset_category]['asset_bytes'][chunk]
+        else:
+            return bytes()
+    else:
+        return bytes()
+
 @update
 def edit_asset(asset: EditAsset, chunk: opt[nat], asset_index: nat, asset_category: opt[str]) -> FunctionCallResult:
     '''
@@ -943,42 +966,45 @@ def edit_asset(asset: EditAsset, chunk: opt[nat], asset_index: nat, asset_catego
         if asset_category is None:
             asset_category = 'start'
         if chunk == 0 or chunk is None:
-            existing_asset = db['assets'][asset_index][asset_category]
+            if asset_index in db['assets']:
+                existing_asset = db['assets'][asset_index][asset_category]
 
-            if asset['asset_bytes']:
-                existing_asset['asset_bytes'] = [asset['asset_bytes']]
-                new_event('Edit Raw Asset',f"Raw asset {asset_index} was changed.")
+                if asset['asset_bytes']:
+                    existing_asset['asset_bytes'] = [asset['asset_bytes']]
+                    new_event('Edit Raw Asset',f"Raw asset {asset_index} was changed.")
 
-            if asset['thumbnail_bytes']:
-                existing_asset['thumbnail_bytes'] = asset['thumbnail_bytes']
-                new_event('Edit Raw Thumbnail',f"Raw asset thumbnail {asset_index} was changed.")
-                    
-            if asset['asset_file_name']:
-                existing_asset['asset_file_name'] = asset['asset_file_name']
-                new_event('Edit Raw Asset Filename',f"Raw asset {asset_index} filename was changed from '{db['assets'][asset_index]['file_name']}' to '{asset['asset_file_name']}'.")
+                if asset['thumbnail_bytes']:
+                    existing_asset['thumbnail_bytes'] = asset['thumbnail_bytes']
+                    new_event('Edit Raw Thumbnail',f"Raw asset thumbnail {asset_index} was changed.")
+                        
+                if asset['asset_file_name']:
+                    existing_asset['asset_file_name'] = asset['asset_file_name']
+                    new_event('Edit Raw Asset Filename',f"Raw asset {asset_index} filename was changed from '{db['assets'][asset_index][asset_category]['asset_file_name']}' to '{asset['asset_file_name']}'.")
 
-            if asset['thumb_file_name']:
-                existing_asset['thumb_file_name'] = asset['thumb_file_name']
-                new_event('Edit Raw Asset Filename',f"Raw asset {asset_index} filename was changed from '{db['assets'][asset_index]['file_name']}' to '{asset['thumb_file_name']}'.")
+                if asset['thumb_file_name']:
+                    existing_asset['thumb_file_name'] = asset['thumb_file_name']
+                    new_event('Edit Raw Asset Filename',f"Raw asset {asset_index} filename was changed from '{db['assets'][asset_index][asset_category]['thumb_file_name']}' to '{asset['thumb_file_name']}'.")
 
-            if asset['asset_file_type']:
-                existing_asset['asset_file_type'] = asset['asset_file_type']
-                new_event('Edit Raw Asset File Type',f"Raw asset {asset_index} file_type was changed from '{db['assets'][asset_index]['file_type']}' to '{asset['asset_file_type']}'.")
+                if asset['asset_file_type']:
+                    existing_asset['asset_file_type'] = asset['asset_file_type']
+                    new_event('Edit Raw Asset File Type',f"Raw asset {asset_index} file_type was changed from '{db['assets'][asset_index][asset_category]['asset_file_type']}' to '{asset['asset_file_type']}'.")
+                
+                if asset['thumb_file_type']:
+                    existing_asset['thumb_file_type'] = asset['thumb_file_type']
+                    new_event('Edit Raw Asset File Type',f"Raw asset {asset_index} file_type was changed from '{db['assets'][asset_index][asset_category]['thumb_file_type']}' to '{asset['thumb_file_type']}'.")
             
-            if asset['thumb_file_type']:
-                existing_asset['thumb_file_type'] = asset['thumb_file_type']
-                new_event('Edit Raw Asset File Type',f"Raw asset {asset_index} file_type was changed from '{db['assets'][asset_index]['file_type']}' to '{asset['thumb_file_type']}'.")
-        
-            db['assets'][asset_index][asset_category] = existing_asset
-            return {'ok':'Asset successfully updated'}
+                db['assets'][asset_index][asset_category] = existing_asset
+                return {'ok':'Asset successfully updated'}
+            else:
+                return {'err':'Sorry, this asset index does not exist so you cannot edit it.'}
         else:
             if asset['asset_bytes']:
                 db['assets'][asset_index][asset_category]['asset_bytes'].append(asset['asset_bytes'])
-                return {'ok':'You successfully added an asset chunk to your existing asset.'}
+                return {'ok':f"You successfully added an asset chunk to your existing asset. Length now {len(db['assets'][asset_index][asset_category]['asset_bytes'])}"}
             else:
-                return {'err':'If you supply a chunk you must also supply an asset_base64_str chunk.'}
+                return {'err':'If you supply a chunk you must also supply an asset_bytes.'}
     else:
-        return {'err':'Only admin can call edit raw asset.'}
+        return {'err':'Only admin can call edit asset.'}
 
 @update
 def remove_asset(asset_index: nat, asset_category: opt[str]) -> FunctionCallResult:
@@ -988,8 +1014,9 @@ def remove_asset(asset_index: nat, asset_category: opt[str]) -> FunctionCallResu
     if str(ic.caller()) in get_permissions('level_1'):
         if asset_index in db['assets']:
             if asset_category is None:
-                asset_category = 'start'
-            del db['assets'][asset_index][asset_category]
+                del db['assets'][asset_index]
+            else:
+                del db['assets'][asset_index][asset_category]
             new_event('Remove Asset',f"Asset {asset_index} from {asset_category} was removed.")
             
             return {'ok':'Raw asset successfully deleted.'}
@@ -1066,7 +1093,10 @@ def mint_nft(nft_object: NftForMinting) -> FunctionCallResult:
     to_address = sanitize_address(nft_object['to_address'])
     
     if not nft_index:
-        nft_index = len(db['registry'])
+        if len(db['registry']) == 0:
+            nft_index = 0
+        else:
+            nft_index = max(list(db['registry'].keys())) + 1
     
     if str(ic.caller()) in get_permissions('level_2'):
         if nft_index not in db['registry']:
@@ -1178,7 +1208,11 @@ def burn_nft(nft_index: nat) -> FunctionCallResult:
             db['registry'][nft_index] = burn_address
             
             db['address_registry'][owner_address].remove(nft_index)
+            if burn_address not in db['address_registry']:
+                db['address_registry'][burn_address] = []
+            
             db['address_registry'][burn_address].append(nft_index)
+
             new_transfer_event(caller_address,burn_address,nft_index,'Burned')
             return {'ok':'NFT burned successfully.'}
         else:
@@ -1223,6 +1257,14 @@ def get_randomness_directly() -> Async[blob]:
         return bytes()
     return randomness_result.ok
 
+# example of using randomness and MersenneTwister to approximate random package
+# @update
+# def get_random_int() -> Async[nat]:
+#     randomness: blob = yield get_randomness_directly()
+#     seed = int.from_bytes(randomness,'big')
+#     random = MersenneTwister(seed) # type: ignore
+#     return random.randint(0,1000) # type: ignore
+
 @update
 def airdrop(to_addresses: list[str], nft_indexes: opt[list[nat]]) -> Async[FunctionCallResult]:
     '''
@@ -1254,18 +1296,12 @@ def airdrop(to_addresses: list[str], nft_indexes: opt[list[nat]]) -> Async[Funct
             if len(randomness) == 0:
                 return {'err':'Randomness call failed, please wait until we can get randomness to do a fair airdrop.'}
             
-            list_a: list[str] = []
-            list_b: list[str] = []
-            for count,to_address in enumerate(sorted(to_addresses)):
-                random_byte = randomness[count % 32]
-                if random_byte > 128:
-                    list_a.append(to_address)
-                else:
-                    list_b.append(to_address)
-            final_to_addresses = list_b + list_a
+            seed = int.from_bytes(randomness,'big')
+            random = MersenneTwister(seed) # type: ignore
+            random.shuffle(to_addresses) # type: ignore
 
             if len(to_addresses) <= len(available_tokens):
-                for to_address in final_to_addresses:
+                for to_address in to_addresses:
                     to_address = sanitize_address(to_address)
                     nft_index = available_tokens.pop(0)
                     db['registry'][nft_index] = to_address
@@ -1353,10 +1389,10 @@ def http_request_streaming_callback(token: Token) -> StreamingCallbackHttpRespon
     asset_category = str(token['arbitrary_data'].split(':')[0])
     asset_index = int(token['arbitrary_data'].split(':')[1])
     chunk_num = int(token['arbitrary_data'].split(':')[2])
-    if len(db['assets'][asset_index]['asset_bytes']) - 1 > chunk_num:
+    if len(db['assets'][asset_index][asset_category]['asset_bytes']) - 1 > chunk_num:
         return {
             'body':db['assets'][asset_index][asset_category]['asset_bytes'][chunk_num],
-            'token':{'arbitrary_data':f'{asset_index}:{chunk_num + 1}'}
+            'token':{'arbitrary_data':f'{asset_category}:{asset_index}:{chunk_num + 1}'}
         }
     # this is the final condition, token = None means we don't have any more chunks
     else:
@@ -1416,7 +1452,6 @@ def return_image_html(asset_url: opt[str], asset_file_type: str) -> HttpResponse
                 'status_code':200,
                 'headers':[
                     ('Content-Type','image/svg+xml'),
-                    ('Content-Length',str(len(http_response_body)))
                 ],
                 'body':http_response_body,
                 'streaming_strategy': None,
@@ -1758,8 +1793,8 @@ def transfer(transfer_request: TransferRequest) -> TransferResponse:
     else:
         return {'err':{'Other':'Invalid from parameter, should be address or principal.'}}
     
-    from_address_from_caller = str(ic.caller().to_account_id(sub_account_num))[2:]
-    if from_address == from_address_from_caller:
+    address_of_caller = str(ic.caller().to_account_id(sub_account_num))[2:]
+    if from_address == address_of_caller:
 
         if 'address' in transfer_request['to']:
             to_address = transfer_request['to']['address']

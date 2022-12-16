@@ -1,5 +1,5 @@
 type AssetCategory = record {
-  asset_category : text;
+  category_name : text;
   category_type : Conditions;
   priority : nat;
 };
@@ -202,10 +202,12 @@ service : () -> {
   airdrop : (vec text, opt vec nat) -> (FunctionCallResult);
   burn_nft : (nat) -> (FunctionCallResult);
   compute_rarity : () -> (FunctionCallResult);
+  create_asset_category : (AssetCategory) -> (FunctionCallResult);
   edit_asset : (EditAsset, opt nat, nat, opt text) -> (FunctionCallResult);
   edit_nft : (Nft) -> (FunctionCallResult);
   getTokens : () -> (vec record { nat32; Metadata }) query;
   get_all_nfts : () -> (vec record { nat; Nft }) query;
+  get_asset : (nat, text, nat) -> (vec nat8) query;
   get_asset_categories : () -> (vec record { text; AssetCategory }) query;
   get_assets : (opt text) -> (vec record { text; text; text }) query;
   get_canister_metadata : () -> (CanisterMeta) query;
@@ -250,6 +252,7 @@ service : () -> {
   set_text_trait : (UpdateMetadataText) -> (FunctionCallResult);
   tokens_ext : (text) -> (TokensExtResult) query;
   transfer : (TransferRequest) -> (TransferResponse);
+  trigger_reveal_off : (text) -> (FunctionCallResult);
   trigger_reveal_on : (text) -> (FunctionCallResult);
   unmint_nft : (nat) -> (FunctionCallResult);
   upload_asset : (AssetForUpload, opt nat, opt nat, opt text) -> (
