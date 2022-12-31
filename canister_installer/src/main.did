@@ -1,0 +1,19 @@
+type CreateCanisterResult = record { canister_id : principal };
+type DefaultResult = variant { ok : bool; err : text };
+type ExecuteCreateCanisterResult = variant {
+  ok : CreateCanisterResult;
+  err : text;
+};
+type FunctionCallResult = variant { ok : text; err : text };
+type RawBinaryForUpload = record {
+  chunk : opt nat16;
+  binary_bytes : vec nat8;
+  canister_name : text;
+};
+service : () -> {
+  change_canister_name : (text, text) -> (FunctionCallResult);
+  create_canister : (text) -> (ExecuteCreateCanisterResult);
+  get_canister_id : (text) -> (text) query;
+  install_code : (text) -> (DefaultResult);
+  upload_wasm_binary : (RawBinaryForUpload) -> (FunctionCallResult);
+}

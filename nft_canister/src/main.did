@@ -1,14 +1,15 @@
-type AssetForUpload = record {
-  thumbnail_bytes : opt vec nat8;
-  asset_bytes : vec nat8;
-  asset_index : opt nat;
-  asset_view : opt text;
-  reveal_category : opt text;
-  chunk : opt nat;
-  asset_file_name : text;
-  asset_file_type : text;
-  thumb_file_name : opt text;
-  thumb_file_type : opt text;
+type AssetDisplayForUpload = record {
+  raw_asset_index : nat16;
+  asset_view : text;
+  reveal_category : text;
+  display_index : nat16;
+};
+type AssetView = record {
+  hidden : bool;
+  default : bool;
+  view_name : text;
+  priority : nat8;
+  view_file_type : text;
 };
 type CallbackStrategy = record {
   token : Token;
@@ -21,9 +22,7 @@ type CanisterMeta = record {
   burn_address : text;
   twitter : opt text;
   owners : vec text;
-  collection : opt vec nat8;
   super_admin : vec text;
-  banner : opt vec nat8;
   description : opt text;
   collection_name : text;
   distrikt : opt text;
@@ -34,10 +33,9 @@ type CanisterMeta = record {
   blurb : opt text;
   brief : opt text;
   license : text;
-  royalty : vec record { text; nat };
+  royalty : vec record { text; nat16 };
   dscvr : opt text;
-  avatar : opt vec nat8;
-  max_number_of_nfts_to_mint : nat;
+  max_number_of_nfts_to_mint : nat16;
 };
 type CommonError = variant {
   InsufficientBalance : text;
@@ -45,16 +43,10 @@ type CommonError = variant {
   Unauthorized : text;
   Other : text;
 };
-type Conditions = variant {
-  manual_condition : ManualCondition;
-  single_time_condition : SingleTimeCondition;
-};
-type EditAsset = record {
+type EditRawAsset = record {
+  raw_asset_index : nat;
   thumbnail_bytes : opt vec nat8;
   asset_bytes : opt vec nat8;
-  asset_index : nat;
-  asset_view : opt text;
-  reveal_category : opt text;
   chunk : opt nat;
   asset_file_name : opt text;
   asset_file_type : opt text;
@@ -63,7 +55,7 @@ type EditAsset = record {
 };
 type Event = record {
   description : text;
-  timestamp : nat;
+  timestamp : nat32;
   actor_principal : text;
   event_type : text;
 };
@@ -83,7 +75,6 @@ type HttpResponse = record {
   status_code : nat16;
 };
 type Listing = record { locked : opt int; seller : principal; price : nat64 };
-type ManualCondition = record { display_flag : bool };
 type ManyMintResult = variant { ok : vec text; err : text };
 type Metadata = variant {
   fungible : MetadataRecord;
@@ -99,36 +90,34 @@ type MetadataRecord = record {
 };
 type MetadataResponse = variant { ok : Metadata; err : CommonError };
 type Nft = record {
-  asset_type : text;
-  asset_index : opt nat;
-  metadata : NftMetadata;
+  display_index : nat16;
+  metadata_index : nat16;
   thumbnail_url : text;
   asset_url : text;
-  nft_index : nat;
+  nft_index : nat16;
 };
 type NftForMinting = record {
-  asset_type : text;
-  asset_index : opt nat;
-  metadata : NftMetadata;
+  display_index : nat;
   to_address : text;
+  metadata_index : nat16;
   thumbnail_url : text;
   asset_url : text;
   nft_index : opt nat;
 };
-type NftMetadata = record {
-  static_traits_text : vec record { text; text };
-  static_traits_number : vec record { text; float64 };
-  dynamic_traits_number : vec record { text; float64 };
-  name : text;
-  dynamic_traits_text : vec record { text; text };
-  description : text;
-  rarity_scores : opt vec record { text; float64 };
-  license : text;
+type RawAssetForUpload = record {
+  raw_asset_index : opt nat;
+  thumbnail_bytes : opt vec nat8;
+  asset_bytes : vec nat8;
+  chunk : opt nat;
+  asset_file_name : text;
+  asset_file_type : text;
+  thumb_file_name : opt text;
+  thumb_file_type : opt text;
 };
 type RevealCategory = record {
+  condition_index : nat16;
   category_name : text;
-  category_type : Conditions;
-  priority : nat;
+  priority : nat16;
 };
 type SetCanister = record {
   web : opt text;
@@ -147,7 +136,6 @@ type SetCanister = record {
   dscvr : opt text;
   avatar : opt vec nat8;
 };
-type SingleTimeCondition = record { change_after : nat };
 type StreamingCallbackHttpResponse = record {
   token : opt Token;
   body : vec nat8;
@@ -168,12 +156,11 @@ type TransferError = variant {
   Other : text;
 };
 type TransferEvent = record {
-  transaction_id : nat;
   to_address : text;
   from_address : text;
-  timestamp : nat;
+  timestamp : nat64;
   transfer_type : text;
-  nft_index : nat;
+  nft_index : nat16;
 };
 type TransferRequest = record {
   to : User;
@@ -210,35 +197,42 @@ service : () -> {
   airdrop : (vec text, opt vec nat) -> (FunctionCallResult);
   burn_nft : (nat) -> (FunctionCallResult);
   compute_rarity : () -> (FunctionCallResult);
-  create_reveal_category : (opt text, RevealCategory) -> (FunctionCallResult);
-  edit_asset : (EditAsset) -> (FunctionCallResult);
+  create_full_asset_display : (AssetDisplayForUpload) -> (
+      FunctionCallResultNat,
+    );
+  create_many_full_asset_displays : (vec AssetDisplayForUpload) -> (
+      FunctionCallResult,
+    );
+  create_new_asset_view : (AssetView) -> (FunctionCallResult);
+  create_reveal_category : (RevealCategory) -> (FunctionCallResult);
   edit_nft : (Nft) -> (FunctionCallResult);
+  edit_raw_asset : (EditRawAsset) -> (FunctionCallResult);
   getTokens : () -> (vec record { nat32; Metadata }) query;
-  get_all_nfts : () -> (vec record { nat; Nft }) query;
-  get_asset : (nat, text, text, nat) -> (vec nat8) query;
-  get_assets : (opt text, opt text) -> (vec record { text; text; text }) query;
-  get_canister_metadata : () -> (CanisterMeta) query;
+  get_all_nfts : () -> (vec record { nat; opt Nft }) query;
+  get_asset_view_names : () -> (opt vec text) query;
+  get_canister_metadata : () -> (opt CanisterMeta) query;
   get_collection_collaborators : () -> (vec text) query;
   get_collection_owners : () -> (vec text) query;
   get_collection_super_admin : () -> (vec text) query;
   get_cycles : () -> (nat64) query;
   get_dynamic_traits_number : (nat, text) -> (FunctionCallResultFloat64) query;
   get_dynamic_traits_text : (nat, text) -> (FunctionCallResult) query;
-  get_events : () -> (vec Event) query;
+  get_event : (nat64) -> (opt Event) query;
   get_nft : (nat) -> (opt Nft) query;
-  get_owner : (nat) -> (FunctionCallResult) query;
-  get_rarity_data : (text) -> (vec record { nat; float64 }) query;
+  get_owner : (nat) -> (opt text) query;
+  get_rarity_data : (text) -> (vec record { nat16; float64 }) query;
   get_rarity_score : (nat, text) -> (FunctionCallResultFloat64) query;
+  get_raw_asset_index : (nat, text, text) -> (FunctionCallResultNat) query;
+  get_raw_assets : () -> (vec record { nat16; text; text; text; text }) query;
   get_registry : () -> (vec record { nat; text }) query;
-  get_reveal_categories : (opt text) -> (
-      vec record { text; RevealCategory },
-    ) query;
+  get_reveal_category_names : () -> (opt vec text) query;
   get_royalty_addresses : () -> (vec record { text; nat }) query;
   get_static_traits_number : (nat, text) -> (FunctionCallResultFloat64) query;
   get_static_traits_text : (nat, text) -> (FunctionCallResult) query;
   get_token_id : (nat) -> (FunctionCallResult) query;
-  get_tokens : (text) -> (vec nat) query;
-  get_transactions : () -> (vec TransferEvent) query;
+  get_tokens : (text) -> (opt vec nat) query;
+  get_transaction : (nat64) -> (opt TransferEvent) query;
+  get_unique_holders : () -> (nat) query;
   http_request : (HttpRequest) -> (HttpResponse) query;
   http_request_streaming_callback : (Token) -> (
       StreamingCallbackHttpResponse,
@@ -247,10 +241,11 @@ service : () -> {
   metadata : (text) -> (MetadataResponse) query;
   mint_many_NFTs : (vec NftForMinting) -> (ManyMintResult);
   mint_nft : (NftForMinting) -> (FunctionCallResult);
-  remove_asset : (nat, opt text, opt text) -> (FunctionCallResult);
+  remove_asset_view : (text) -> (FunctionCallResult);
   remove_collection_collaborator : (text) -> (FunctionCallResult);
   remove_collection_owner : (text) -> (FunctionCallResult);
   remove_collection_super_admin : (text) -> (FunctionCallResult);
+  remove_raw_asset : (nat) -> (FunctionCallResult);
   remove_royalty_address : (text) -> (FunctionCallResult);
   set_burn_address : (text) -> (FunctionCallResult);
   set_canister_metadata : (SetCanister) -> (FunctionCallResult);
@@ -262,9 +257,9 @@ service : () -> {
   set_text_trait : (UpdateMetadataText) -> (FunctionCallResult);
   tokens_ext : (text) -> (TokensExtResult) query;
   transfer : (TransferRequest) -> (TransferResponse);
-  trigger_reveal_off : (opt text, text) -> (FunctionCallResult);
-  trigger_reveal_on : (opt text, text) -> (FunctionCallResult);
+  trigger_reveal_off : (text) -> (FunctionCallResult);
+  trigger_reveal_on : (text) -> (FunctionCallResult);
   unmint_nft : (nat) -> (FunctionCallResult);
-  upload_asset : (AssetForUpload) -> (FunctionCallResultNat);
+  upload_raw_asset : (RawAssetForUpload) -> (FunctionCallResultNat);
   who_am_i : () -> (text) query;
 }
