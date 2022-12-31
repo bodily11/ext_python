@@ -1,9 +1,26 @@
-from kybra import Canister,CanisterResult,ic,nat,nat8,nat16,nat32,nat64,blob,opt,float64,Principal,Variant,Record,Async,pre_upgrade,post_upgrade,init,query,update,method
+from kybra import StableBTreeMap,Canister,CanisterResult,ic,nat,nat8,nat16,nat32,nat64,blob,opt,float64,Principal,Variant,Record,Async,pre_upgrade,post_upgrade,init,query,update,method
 from twister_random import MersenneTwister #type: ignore
 import rarity_computation
-from main_types import Token,StreamingCallbackHttpResponse,Nft,TransferEvent,Event,AssetView,RevealCategory,CanisterMeta,FunctionCallResult,FunctionCallResultNat,UpdateMetadataNumber,UpdateMetadataText,SetCanister,RawAssetForUpload,AssetDisplayForUpload,EditRawAsset,NftForMinting,ManyMintResult,HttpRequest,FunctionCallResultFloat64,HttpResponse
-from main_types import registry,address_registry,raw_assets,nfts,nft_metadata,transactions,events,display_to_raw_asset,asset_views,reveal_categories,reveal_conditions,display_to_reveal_categories,nft_rarity_scores,canister_metadata,max_of_arrays,categories
-import nft_home_page_html
+from main_types import Asset,NftMetadata,DisplayToRawAsset,RevealCondition,DisplayToRevealCategories,tupleType,CanisterImage,Token,StreamingCallbackHttpResponse,Nft,TransferEvent,Event,AssetView,RevealCategory,CanisterMeta,FunctionCallResult,FunctionCallResultNat,UpdateMetadataNumber,UpdateMetadataText,SetCanister,RawAssetForUpload,AssetDisplayForUpload,EditRawAsset,NftForMinting,ManyMintResult,HttpRequest,FunctionCallResultFloat64,HttpResponse
+from nft_home_page_html import get_home_page_html
+
+registry = StableBTreeMap[nat16, str](memory_id=0, max_key_size=9, max_value_size=72) # nft_index, wallet_address
+address_registry = StableBTreeMap[str, list[nat16]](memory_id=1, max_key_size=72, max_value_size=20010) # wallet_address, list[nft_index] - will handle 10k NFTs
+raw_assets = StableBTreeMap[nat16, Asset](memory_id=2, max_key_size=15, max_value_size=3_985_305) # raw_asset_index, actual_asset - will handle 2MB thumbs and 2 MB assets
+nfts = StableBTreeMap[nat16, Nft](memory_id=3, max_key_size=9, max_value_size=573) # nft_index, nft_object - will handle 10k NFTs
+nft_metadata = StableBTreeMap[nat16, NftMetadata](memory_id=4, max_key_size=9, max_value_size=573) # will handle 10k NFTs
+transactions = StableBTreeMap[nat64, TransferEvent](memory_id=5, max_key_size=15, max_value_size=255) # transaction_id, actual_transaction - will handle 10k NFTs                    
+events = StableBTreeMap[nat64, Event](memory_id=6, max_key_size=15, max_value_size=452) # event_id, actual_event - will handle 10k NFTs
+display_to_raw_asset = StableBTreeMap[DisplayToRawAsset, nat16](memory_id=7, max_key_size=173, max_value_size=9) # a 3-primary-key composite index, raw_asset_index
+asset_views = StableBTreeMap[str, AssetView](memory_id=8, max_key_size=72, max_value_size=175)
+reveal_categories = StableBTreeMap[str, RevealCategory](memory_id=9, max_key_size=72, max_value_size=175) # reveal_category_name, actual_reveal_category_object
+reveal_conditions = StableBTreeMap[nat16, RevealCondition](memory_id=10, max_key_size=9, max_value_size=24) # reveal_condition_index, actual_reveal_condition_object
+display_to_reveal_categories = StableBTreeMap[DisplayToRevealCategories, list[str]](memory_id=11, max_key_size=102, max_value_size=3210) # reveal_category_name, actual_reveal_category_object
+nft_rarity_scores = StableBTreeMap[str, list[tupleType]](memory_id=12, max_key_size=72, max_value_size=80024) # nft_index, rarity_score_object
+canister_metadata = StableBTreeMap[nat8, CanisterMeta](memory_id=13, max_key_size=15, max_value_size=4416) # will_always_be_0, canister_meta_object
+canister_images = StableBTreeMap[nat8, CanisterImage](memory_id=14, max_key_size=15, max_value_size=5_976_909) # will_always_be_0, canister_image_meta_object
+max_of_arrays = StableBTreeMap[str, nat16](memory_id=15, max_key_size=72, max_value_size=9)
+categories = StableBTreeMap[str,list[str]](memory_id=16, max_key_size=72, max_value_size=3610)
 
 def new_event(event_type: str, description: str) -> bool:
     '''
@@ -38,37 +55,38 @@ def new_transfer_event(from_address: str, to_address: str, nft_index: nat, trans
 @init
 def init_():
     '''
-    This only runs once the first time you deploy the canister. We set db in stable storage and initialize a few events.
+    This only runs once the first time you deploy the canister.
     '''
     ic.print('init')
-    canister_metadata.insert(0,{
+    
+    canister_metadata_for_insert: CanisterMeta = {
         'collection_name': 'Initial Collection Name CHANGE ME',
-        'royalty': [],
+        'royalty': [('asdf',1000)],
         'super_admin': ['2sr56-kadmk-wfai7-753z7-yo6rd-a4d2f-ghedf-wrkvd-rav3s-2vcfm-wae'],
-        'owners': [],
-        'collaborators': [],
+        'owners': ['2sr56-kadmk-wfai7-753z7-yo6rd-a4d2f-ghedf-wrkvd-rav3s-2vcfm-wae'],
+        'collaborators': ['2sr56-kadmk-wfai7-753z7-yo6rd-a4d2f-ghedf-wrkvd-rav3s-2vcfm-wae'],
         'burn_address': '0000000000000000000000000000000000000000000000000000000000000001',
         'max_number_of_nfts_to_mint': 10000,
-        'license': '',
-        'blurb': '',
-        'brief': '',
-        'description': '',
-        'detailpage': '',
-        'keywords': '',
-        'twitter': '',
-        'discord': '',
-        'distrikt': '',
-        'dscvr': '',
-        'web': ''
-    })
-
-    canister_meta_opt = canister_metadata.get(0)
-    if canister_meta_opt:
-        new_event('Canister Created','New canister deployed.')
-        new_event('Add Super Admin',f'Initial super admin list set to {canister_meta_opt["super_admin"]}')
-        new_event('Add Owners',f'Initial owner list set to {canister_meta_opt["owners"]}')
-        new_event('Add Collaborators',f'Initial collaborator list set to {canister_meta_opt["collaborators"]}')
-        new_event('Set Burn Address',f'Initial burn address set to {canister_meta_opt["burn_address"]}')
+        'license': 'asdf',
+        'blurb': 'asdf',
+        'brief': 'asdf',
+        'description': 'asdf',
+        'detailpage': 'asdf',
+        'keywords': 'asdf',
+        'twitter': 'asdf',
+        'discord': 'asdf',
+        'distrikt': 'asdf',
+        'dscvr': 'asdf',
+        'web': 'asdf'
+    }
+    
+    canister_metadata.insert(0,canister_metadata_for_insert)
+    
+    new_event('Canister Created','New canister deployed.')
+    new_event('Add Super Admin',f'Initial super admin list set to {canister_metadata_for_insert["super_admin"]}')
+    new_event('Add Owners',f'Initial owner list set to {canister_metadata_for_insert["owners"]}')
+    new_event('Add Collaborators',f'Initial collaborator list set to {canister_metadata_for_insert["collaborators"]}')
+    new_event('Set Burn Address',f'Initial burn address set to {canister_metadata_for_insert["burn_address"]}')
 
 @pre_upgrade
 def pre_upgrade_():
@@ -1670,7 +1688,7 @@ def http_request(request: HttpRequest) -> HttpResponse:
     if '&' in request_url and '=' in request_url and '?' in request_url:
         params = get_request_params(request_url)
     else:
-        return nft_home_page_html.get_home_page_html(registry, address_registry, canister_metadata, events)
+        return get_home_page_html(registry, address_registry, canister_metadata, events)
 
     if 'view' in params:
         asset_view = params['view']
@@ -1801,7 +1819,7 @@ def http_request(request: HttpRequest) -> HttpResponse:
         return return_image_html(None, None, '')
 
     else:
-        return nft_home_page_html.get_home_page_html(registry, address_registry, canister_metadata, events)
+        return get_home_page_html(registry, address_registry, canister_metadata, events)
 
 # ext_transfer
 class User(Variant, total=False):

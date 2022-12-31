@@ -42,7 +42,6 @@ def get_home_page_html(registry: StableBTreeMap[nat16, str], address_registry: S
 
     current_supply = minted_nfts_count - burned_nfts_count
     unique_holders = address_registry.len()
-    http_response_body = http_response_body = nft_home_page_html.get_home_page_html(registry, address_registry, canister_metadata, events) #type: ignore
     http_response_body = bytes(f'''
             <!DOCTYPE html>
             <html>

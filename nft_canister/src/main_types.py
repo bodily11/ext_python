@@ -1,4 +1,4 @@
-from kybra import nat,nat8,nat16,nat32,nat64,blob,opt,float64,Variant,Record,Query,Func,StableBTreeMap
+from kybra import nat,nat8,nat16,nat32,nat64,blob,opt,float64,Variant,Record,Query,Func
 from typing import TypeAlias
 
 tupleType = tuple[nat16,float64]
@@ -220,20 +220,3 @@ class DisplayToRevealCategories(Record):
     asset_view: str # max of 64 characters, 72 bytes
 # 9 + 12 + 72 + 9 = 102
 
-registry = StableBTreeMap[nat16, str](memory_id=0, max_key_size=9, max_value_size=72) # nft_index, wallet_address
-address_registry = StableBTreeMap[str, list[nat16]](memory_id=1, max_key_size=72, max_value_size=20010) # wallet_address, list[nft_index] - will handle 10k NFTs
-raw_assets = StableBTreeMap[nat16, Asset](memory_id=2, max_key_size=15, max_value_size=3_985_305) # raw_asset_index, actual_asset - will handle 2MB thumbs and 2 MB assets
-nfts = StableBTreeMap[nat16, Nft](memory_id=3, max_key_size=9, max_value_size=573) # nft_index, nft_object - will handle 10k NFTs
-nft_metadata = StableBTreeMap[nat16, NftMetadata](memory_id=4, max_key_size=9, max_value_size=573) # will handle 10k NFTs
-transactions = StableBTreeMap[nat64, TransferEvent](memory_id=5, max_key_size=15, max_value_size=255) # transaction_id, actual_transaction - will handle 10k NFTs                    
-events = StableBTreeMap[nat64, Event](memory_id=6, max_key_size=15, max_value_size=452) # event_id, actual_event - will handle 10k NFTs
-display_to_raw_asset = StableBTreeMap[DisplayToRawAsset, nat16](memory_id=7, max_key_size=173, max_value_size=9) # a 3-primary-key composite index, raw_asset_index
-asset_views = StableBTreeMap[str, AssetView](memory_id=8, max_key_size=72, max_value_size=175)
-reveal_categories = StableBTreeMap[str, RevealCategory](memory_id=9, max_key_size=72, max_value_size=175) # reveal_category_name, actual_reveal_category_object
-reveal_conditions = StableBTreeMap[nat16, RevealCondition](memory_id=10, max_key_size=9, max_value_size=24) # reveal_condition_index, actual_reveal_condition_object
-display_to_reveal_categories = StableBTreeMap[DisplayToRevealCategories, list[str]](memory_id=11, max_key_size=102, max_value_size=3210) # reveal_category_name, actual_reveal_category_object
-nft_rarity_scores = StableBTreeMap[str, list[tupleType]](memory_id=12, max_key_size=72, max_value_size=80024) # nft_index, rarity_score_object
-canister_metadata = StableBTreeMap[nat8, CanisterMeta](memory_id=13, max_key_size=15, max_value_size=4416) # will_always_be_0, canister_meta_object
-canister_images = StableBTreeMap[nat8, CanisterImage](memory_id=14, max_key_size=15, max_value_size=5_976_909) # will_always_be_0, canister_image_meta_object
-max_of_arrays = StableBTreeMap[str, nat16](memory_id=15, max_key_size=72, max_value_size=9)
-categories = StableBTreeMap[str,list[str]](memory_id=16, max_key_size=72, max_value_size=3610)

@@ -15,5 +15,6 @@ service : () -> {
   create_canister : (text) -> (ExecuteCreateCanisterResult);
   get_canister_id : (text) -> (text) query;
   install_code : (text) -> (DefaultResult);
+  reinstall_code : (text) -> (DefaultResult);
   upload_wasm_binary : (RawBinaryForUpload) -> (FunctionCallResult);
 }
