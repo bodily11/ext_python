@@ -1,4 +1,4 @@
-from kybra import ic, blob, Variant, Async, CanisterResult, Principal, update, StableBTreeMap, query, opt, nat16, Record, init
+from kybra import nat64, ic, blob, Variant, Async, CanisterResult, Principal, update, StableBTreeMap, query, opt, nat16, Record, init
 from kybra.canisters.management import CreateCanisterResult, management_canister
 
 class DefaultResult(Variant, total=False):
@@ -45,6 +45,20 @@ class RawBinaryForUpload(Record):
 @init
 def init_():
     admin_array.insert(0,['2sr56-kadmk-wfai7-753z7-yo6rd-a4d2f-ghedf-wrkvd-rav3s-2vcfm-wae'])
+
+@query
+def get_cycles() -> nat64:
+    '''
+    Returns the raw cycles left in the canister.
+    '''
+    return ic.canister_balance()
+
+@update
+def receive_cycles() -> nat64:
+    '''
+    Method for child canisters to call to send cycles back to the factory.
+    '''
+    return ic.msg_cycles_accept(ic.msg_cycles_available())
 
 def admin():
     calling_principal = str(ic.caller())
@@ -135,6 +149,36 @@ def reinstall_code(canister_name: str) -> Async[DefaultResult]:
         return {'err':'Sorry, no canister id was found for this canister name. Try creating a canister first.'}
 
 @update
+def upgrade_code(canister_name: str) -> Async[DefaultResult]:
+    if not admin():
+        return {'err':'Sorry, you must be admin to call this.'}
+    canister_id_opt = canister_registry.get(canister_name)
+    if canister_id_opt:
+        canister_id_for_install: Principal = Principal.from_str(canister_id_opt)
+        wasm_module_opt = wasm_binaries.get(canister_name)
+        if wasm_module_opt:
+            canister_result: CanisterResult[None] = yield management_canister.install_code({
+                'mode': {
+                    'upgrade': None
+                },
+                'canister_id': canister_id_for_install,
+                'wasm_module': wasm_module_opt,
+                'arg': bytes()
+            })
+
+            if canister_result.err is not None:
+                return {
+                    'err': canister_result.err
+                }
+            return {
+                'ok': True
+            }
+        else:
+            return {'err':'Sorry, no wasm module was found for the specified canister name.'}
+    else:
+        return {'err':'Sorry, no canister id was found for this canister name. Try creating a canister first.'}
+
+@update
 def create_canister(canister_name: str) -> Async[ExecuteCreateCanisterResult]:
     if not admin():
         return {'err':'Sorry, you must be admin to call this.'}
@@ -175,3 +219,61 @@ def get_canister_id(canister_name: str) -> str:
         return canister_name_opt
     else:
         return ''
+
+@update
+def stop_canister(canister_name: str) -> Async[DefaultResult]:
+    canister_id_opt = canister_registry.get(canister_name)
+    if canister_id_opt:
+        canister_result: CanisterResult[None] = yield management_canister.stop_canister({
+            'canister_id': Principal.from_str(canister_id_opt)
+        })
+
+        if canister_result.err is not None:
+            return {
+                'err': canister_result.err
+            }
+
+        return {
+            'ok': True
+        }
+    else:
+        return {'err':'Canister not found by that name.'}
+
+@update
+def start_canister(canister_name: str) -> Async[DefaultResult]:
+    canister_id_opt = canister_registry.get(canister_name)
+    if canister_id_opt:
+        canister_result: CanisterResult[None] = yield management_canister.start_canister({
+            'canister_id': Principal.from_str(canister_id_opt)
+        })
+
+        if canister_result.err is not None:
+            return {
+                'err': canister_result.err
+            }
+
+        return {
+            'ok': True
+        }
+    else:
+        return {'err':'Canister not found by that name.'}
+
+@update
+def delete_canister(canister_name: str) -> Async[DefaultResult]:
+    canister_id_opt = canister_registry.get(canister_name)
+    if canister_id_opt:
+        canister_result: CanisterResult[None] = yield management_canister.delete_canister({
+            'canister_id': Principal.from_str(canister_id_opt)
+        })
+
+        if canister_result.err is not None:
+            return {
+                'err': canister_result.err
+            }
+        
+        canister_registry.remove(canister_name)        
+        return {
+            'ok': True
+        }
+    else:
+        return {'err':'Canister not found by that name.'}

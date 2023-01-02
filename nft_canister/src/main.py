@@ -4,6 +4,21 @@ import rarity_computation
 from main_types import Asset,NftMetadata,DisplayToRawAsset,RevealCondition,DisplayToRevealCategories,tupleType,CanisterImage,Token,StreamingCallbackHttpResponse,Nft,TransferEvent,Event,AssetView,RevealCategory,CanisterMeta,FunctionCallResult,FunctionCallResultNat,UpdateMetadataNumber,UpdateMetadataText,SetCanister,RawAssetForUpload,AssetDisplayForUpload,EditRawAsset,NftForMinting,ManyMintResult,HttpRequest,FunctionCallResultFloat64,HttpResponse
 from nft_home_page_html import get_home_page_html
 
+# SIZING GUIDE
+# Nat64: 7 + 8 bytes, max value is 1.84E19
+# Nat32: 7 + 4 bytes, max value is 4294967295
+# Nat16: 7 + 2 bytes, max value is 65535
+# Nat8: 7 + 1 byte, max value is 256
+# str: 8 + 1 byte per character
+# list of Nats: 10 bytes + (actual_nat)*n
+# record: 9 + 6*num_keys + actual_values
+# variant: 10 + 6*num_keys (include all keys) + actual_value selected
+# list in record: 3 + (actual_nat)*n
+# string in record: 1 + 1 byte per character
+# opt adds 3 bytes
+# tuple adds 6 bytes + values within
+# bool is 1 byte solo, don't know by itself yet
+
 registry = StableBTreeMap[nat16, str](memory_id=0, max_key_size=9, max_value_size=72) # nft_index, wallet_address
 address_registry = StableBTreeMap[str, list[nat16]](memory_id=1, max_key_size=72, max_value_size=20010) # wallet_address, list[nft_index] - will handle 10k NFTs
 raw_assets = StableBTreeMap[nat16, Asset](memory_id=2, max_key_size=15, max_value_size=3_985_305) # raw_asset_index, actual_asset - will handle 2MB thumbs and 2 MB assets
@@ -21,6 +36,22 @@ canister_metadata = StableBTreeMap[nat8, CanisterMeta](memory_id=13, max_key_siz
 canister_images = StableBTreeMap[nat8, CanisterImage](memory_id=14, max_key_size=15, max_value_size=5_976_909) # will_always_be_0, canister_image_meta_object
 max_of_arrays = StableBTreeMap[str, nat16](memory_id=15, max_key_size=72, max_value_size=9)
 categories = StableBTreeMap[str,list[str]](memory_id=16, max_key_size=72, max_value_size=3610)
+
+
+# DISPLAY INDEX, ASSET VIEWS, REVEAL CATEGORIES, RAW ASSET INDEX
+# categories: use key and then append to array to keep track of all keys since no keys() in stable structures yet
+# max_of_arrays: use to keep track of maxes for creation purposes
+# display_to_reveal_category_details: use to keep track of reveal category information
+# display_to_view_details: use to keep track of asset view information, priority, status, etc.
+# display_to_raw_asset: use display index, asset view, and reveal category to get asset index
+
+# MINTING NFTs
+# 1. Create an asset view -> 'image' or 'video' or 'html'
+# 2. Create some reveal categories -> 'start' or 'post-launch' or 'dead-version'
+# 3. Upload some assets. -> all raw assets, upload them all as a blob
+# 4. Associate display index, asset view, and array of reveal categories, i.e. add 'post-launch' to a display index and asset view
+# 5. Associate display index, asset view, reveal category, and specific asset index
+
 
 def new_event(event_type: str, description: str) -> bool:
     '''
@@ -61,23 +92,23 @@ def init_():
     
     canister_metadata_for_insert: CanisterMeta = {
         'collection_name': 'Initial Collection Name CHANGE ME',
-        'royalty': [('asdf',1000)],
+        'royalty': [],
         'super_admin': ['2sr56-kadmk-wfai7-753z7-yo6rd-a4d2f-ghedf-wrkvd-rav3s-2vcfm-wae'],
-        'owners': ['2sr56-kadmk-wfai7-753z7-yo6rd-a4d2f-ghedf-wrkvd-rav3s-2vcfm-wae'],
-        'collaborators': ['2sr56-kadmk-wfai7-753z7-yo6rd-a4d2f-ghedf-wrkvd-rav3s-2vcfm-wae'],
+        'owners': [],
+        'collaborators': [],
         'burn_address': '0000000000000000000000000000000000000000000000000000000000000001',
         'max_number_of_nfts_to_mint': 10000,
-        'license': 'asdf',
-        'blurb': 'asdf',
-        'brief': 'asdf',
-        'description': 'asdf',
-        'detailpage': 'asdf',
-        'keywords': 'asdf',
-        'twitter': 'asdf',
-        'discord': 'asdf',
-        'distrikt': 'asdf',
-        'dscvr': 'asdf',
-        'web': 'asdf'
+        'license': '',
+        'blurb': None,
+        'brief': None,
+        'description': None,
+        'detailpage': None,
+        'keywords': None,
+        'twitter': None,
+        'discord': None,
+        'distrikt': None,
+        'dscvr': None,
+        'web': None,
     }
     
     canister_metadata.insert(0,canister_metadata_for_insert)
@@ -250,6 +281,34 @@ def get_cycles() -> nat64:
     Returns the raw cycles left in the canister.
     '''
     return ic.canister_balance()
+
+class SendCyclesResult(Variant, total=False):
+    ok: nat64
+    err: str
+
+class InstallationCanister(Canister):
+    @method
+    def receive_cycles(self) -> nat64: ...
+
+@update
+def send_cycles(cycles_to_send: nat64) -> Async[SendCyclesResult]:
+    '''
+    Send cycles back to the installation canister to reclaim cycles.
+    '''
+    if str(ic.caller()) in get_permissions('level_1'):
+        installation_canister = InstallationCanister(Principal.from_str('5bgk3-4yaaa-aaaam-aayrq-cai'))
+        result: CanisterResult[nat64] = yield installation_canister.receive_cycles().with_cycles(cycles_to_send)
+
+        if result.err is not None:
+            return {
+                'err': result.err
+            }
+
+        return {
+            'ok': ic.msg_cycles_refunded()
+        }
+    else:
+        return {'err':'Sorry, you must be admin to send cycles back to factory canister.'}
 
 @query
 def get_event(event_index: nat64) -> opt[Event]:

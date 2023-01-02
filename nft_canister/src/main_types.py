@@ -1,4 +1,4 @@
-from kybra import nat,nat8,nat16,nat32,nat64,blob,opt,float64,Variant,Record,Query,Func
+from kybra import nat8,nat16,nat64,blob,opt,float64,Variant,Record,Query,Func
 from typing import TypeAlias
 
 tupleType = tuple[nat16,float64]
@@ -18,14 +18,14 @@ class NftMetadata(Record):
     license: opt[str]
 
 class UpdateMetadataText(Record):
-    nft_index: nat
+    nft_index: nat16
     trait_type: str # static vs dynamic
     trait_format: str # text vs number
     trait_name: str # trait category name
     trait_value: str # trait value
 
 class UpdateMetadataNumber(Record):
-    nft_index: nat
+    nft_index: nat16
     trait_type: str # static vs dynamic
     trait_format: str # text vs number
     trait_name: str # trait category name
@@ -40,10 +40,10 @@ class Nft(Record):
 # 9 + 6*5 + 264 + 264 + 6 = 573
 
 class NftForMinting(Record):
-    nft_index: opt[nat]
+    nft_index: opt[nat16]
     asset_url: str
     thumbnail_url: str
-    display_index: nat
+    display_index: nat16
     metadata_index: nat16
     to_address: str
 
@@ -99,13 +99,13 @@ class FunctionCallResultFloat64(Variant, total=False):
     err: str
 
 class FunctionCallResultNat(Variant, total=False):
-    ok: nat
+    ok: nat16
     err: str
 
 class Event(Record):
     event_type: str # max 64 characters
     description: str # max 256 characters
-    timestamp: nat32 # 11 bytes
+    timestamp: nat64 # 11 bytes
     actor_principal: str # max 64 characters
 # 9 + 6*4 + 72 + 264 + 11 + 72 = 452
 
@@ -169,8 +169,8 @@ class RawAssetForUpload(Record):
     thumb_file_name: opt[str]
     thumbnail_bytes: opt[blob]
     thumb_file_type: opt[str]
-    chunk: opt[nat]
-    raw_asset_index: opt[nat]
+    chunk: opt[nat8]
+    raw_asset_index: opt[nat16]
 
 class EditRawAsset(Record):
     asset_file_name: opt[str]
@@ -179,8 +179,8 @@ class EditRawAsset(Record):
     thumb_file_name: opt[str]
     thumbnail_bytes: opt[blob]
     thumb_file_type: opt[str]
-    chunk: opt[nat]
-    raw_asset_index: nat
+    chunk: opt[nat8]
+    raw_asset_index: nat16
 
 class AssetDisplayForUpload(Record):
     display_index: nat16

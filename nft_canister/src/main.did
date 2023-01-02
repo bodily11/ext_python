@@ -44,10 +44,10 @@ type CommonError = variant {
   Other : text;
 };
 type EditRawAsset = record {
-  raw_asset_index : nat;
+  raw_asset_index : nat16;
   thumbnail_bytes : opt vec nat8;
   asset_bytes : opt vec nat8;
-  chunk : opt nat;
+  chunk : opt nat8;
   asset_file_name : opt text;
   asset_file_type : opt text;
   thumb_file_name : opt text;
@@ -55,13 +55,13 @@ type EditRawAsset = record {
 };
 type Event = record {
   description : text;
-  timestamp : nat32;
+  timestamp : nat64;
   actor_principal : text;
   event_type : text;
 };
 type FunctionCallResult = variant { ok : text; err : text };
 type FunctionCallResultFloat64 = variant { ok : float64; err : text };
-type FunctionCallResultNat = variant { ok : nat; err : text };
+type FunctionCallResultNat = variant { ok : nat16; err : text };
 type HttpRequest = record {
   url : text;
   method : text;
@@ -97,18 +97,18 @@ type Nft = record {
   nft_index : nat16;
 };
 type NftForMinting = record {
-  display_index : nat;
+  display_index : nat16;
   to_address : text;
   metadata_index : nat16;
   thumbnail_url : text;
   asset_url : text;
-  nft_index : opt nat;
+  nft_index : opt nat16;
 };
 type RawAssetForUpload = record {
-  raw_asset_index : opt nat;
+  raw_asset_index : opt nat16;
   thumbnail_bytes : opt vec nat8;
   asset_bytes : vec nat8;
-  chunk : opt nat;
+  chunk : opt nat8;
   asset_file_name : text;
   asset_file_type : text;
   thumb_file_name : opt text;
@@ -119,6 +119,7 @@ type RevealCategory = record {
   category_name : text;
   priority : nat16;
 };
+type SendCyclesResult = variant { ok : nat64; err : text };
 type SetCanister = record {
   web : opt text;
   twitter : opt text;
@@ -178,14 +179,14 @@ type UpdateMetadataNumber = record {
   trait_type : text;
   trait_value : float64;
   trait_format : text;
-  nft_index : nat;
+  nft_index : nat16;
 };
 type UpdateMetadataText = record {
   trait_name : text;
   trait_type : text;
   trait_value : text;
   trait_format : text;
-  nft_index : nat;
+  nft_index : nat16;
 };
 type User = variant { "principal" : principal; address : text };
 service : () -> {
@@ -247,6 +248,7 @@ service : () -> {
   remove_collection_super_admin : (text) -> (FunctionCallResult);
   remove_raw_asset : (nat) -> (FunctionCallResult);
   remove_royalty_address : (text) -> (FunctionCallResult);
+  send_cycles : (nat64) -> (SendCyclesResult);
   set_burn_address : (text) -> (FunctionCallResult);
   set_canister_metadata : (SetCanister) -> (FunctionCallResult);
   set_collection_name : (text) -> (FunctionCallResult);

@@ -13,8 +13,14 @@ type RawBinaryForUpload = record {
 service : () -> {
   change_canister_name : (text, text) -> (FunctionCallResult);
   create_canister : (text) -> (ExecuteCreateCanisterResult);
+  delete_canister : (text) -> (DefaultResult);
   get_canister_id : (text) -> (text) query;
+  get_cycles : () -> (nat64) query;
   install_code : (text) -> (DefaultResult);
+  receive_cycles : () -> (nat64);
   reinstall_code : (text) -> (DefaultResult);
+  start_canister : (text) -> (DefaultResult);
+  stop_canister : (text) -> (DefaultResult);
+  upgrade_code : (text) -> (DefaultResult);
   upload_wasm_binary : (RawBinaryForUpload) -> (FunctionCallResult);
 }
