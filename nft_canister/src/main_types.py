@@ -182,6 +182,11 @@ class EditRawAsset(Record):
     chunk: opt[nat8]
     raw_asset_index: nat16
 
+class AssetDisplay(Record):
+    display_index: nat16
+    asset_view: str
+    reveal_category: str
+
 class AssetDisplayForUpload(Record):
     display_index: nat16
     asset_view: str
@@ -203,16 +208,16 @@ class AssetView(Record):
 # 9 + 30 + 72 + 40 + 3 = 154
 
 class RevealCondition(Variant, total=False):
-    single_time_condition: nat16 # time after which to change
+    single_time_condition: nat64 # time after which to change
     # repeated_time_condition: RepeatedTimeCondition
     # data_condition: DataCondition
     manual_condition: bool # whether true or false
 # 10 + 12 + 2
 
 class RevealCategory(Record):
-    condition_index: nat16 # RevealConditions index, 2 bytes
     priority: nat16 # priority number, 2 bytes
     category_name: str # 64 character max, 72 bytes
+    reveal_condition: RevealCondition
 # 9 + 18 + 76 = 175
 
 class DisplayToRevealCategories(Record):
