@@ -15,7 +15,7 @@ class NftMetadata(Record):
     static_traits_text: list[tuple[str,str]] # 1289 bytes
     static_traits_number: list[tuple[str,float64]] # 729 bytes
     rarity_scores: opt[list[tuple[str,float64]]] # 729 bytes
-    license: opt[str]
+    license: opt[str] # 4 + 300 characters, 304 bytes
 
 class UpdateMetadataText(Record):
     nft_index: nat16

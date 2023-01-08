@@ -3,13 +3,6 @@ from main_types import CanisterMeta,Nft,NftMetadata,tupleType,FunctionCallResult
 import math
 
 def run_rarity_calcs(canister_metadata: StableBTreeMap[nat8, CanisterMeta], nfts: StableBTreeMap[nat16, Nft], registry: StableBTreeMap[nat16, str], nft_metadata: StableBTreeMap[nat16, NftMetadata], nft_rarity_scores: StableBTreeMap[str, list[tupleType]], caller_principal: str) -> FunctionCallResult:
-    def get_registry_items() -> list[tuple[nat16,str]]:
-        final_registry: list[tuple[nat16,str]] = []
-        for nft_index in range(registry.len()):
-            registry_opt = registry.get(nft_index)
-            registry_value = registry_opt if registry_opt is not None else ''
-            final_registry.append((nft_index,registry_value))
-        return final_registry
 
     def get_permissions(permission_type: str) -> list[str]:
         canister_opt = canister_metadata.get(0)
@@ -31,7 +24,7 @@ def run_rarity_calcs(canister_metadata: StableBTreeMap[nat8, CanisterMeta], nfts
         trait_category_text_counts: dict[str, dict[str,int]] = {}
         trait_category_number_arrays: dict[str, list[float]] = {}
 
-        all_nfts = get_registry_items()
+        all_nfts = registry.items()
         for nft in all_nfts:
             nft_index = nft[0]
             single_nft = nfts.get(nft_index)

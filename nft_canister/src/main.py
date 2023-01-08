@@ -21,18 +21,18 @@ from nft_home_page_html import get_home_page_html
 
 registry = StableBTreeMap[nat16, str](memory_id=0, max_key_size=9, max_value_size=72) # nft_index, wallet_address
 address_registry = StableBTreeMap[str, list[nat16]](memory_id=1, max_key_size=72, max_value_size=20010) # wallet_address, list[nft_index] - will handle 10k NFTs
-raw_assets = StableBTreeMap[nat16, Asset](memory_id=2, max_key_size=15, max_value_size=3_985_305) # raw_asset_index, actual_asset - will handle 2MB thumbs and 2 MB assets
-nfts = StableBTreeMap[nat16, Nft](memory_id=3, max_key_size=9, max_value_size=573) # nft_index, nft_object - will handle 10k NFTs
-nft_metadata = StableBTreeMap[nat16, NftMetadata](memory_id=4, max_key_size=9, max_value_size=573) # will handle 10k NFTs
-transactions = StableBTreeMap[nat64, TransferEvent](memory_id=5, max_key_size=15, max_value_size=255) # transaction_id, actual_transaction - will handle 10k NFTs                    
-events = StableBTreeMap[nat64, Event](memory_id=6, max_key_size=15, max_value_size=452) # event_id, actual_event - will handle 10k NFTs
-display_to_raw_asset = StableBTreeMap[DisplayToRawAsset, nat16](memory_id=7, max_key_size=173, max_value_size=9) # a 3-primary-key composite index, raw_asset_index
-asset_views = StableBTreeMap[str, AssetView](memory_id=8, max_key_size=72, max_value_size=175)
-reveal_categories = StableBTreeMap[str, RevealCategory](memory_id=9, max_key_size=72, max_value_size=175) # reveal_category_name, actual_reveal_category_object
-display_to_reveal_categories = StableBTreeMap[DisplayToRevealCategories, list[str]](memory_id=11, max_key_size=102, max_value_size=3210) # reveal_category_name, actual_reveal_category_object
-nft_rarity_scores = StableBTreeMap[str, list[tupleType]](memory_id=12, max_key_size=72, max_value_size=80024) # nft_index, rarity_score_object
-canister_metadata = StableBTreeMap[nat8, CanisterMeta](memory_id=13, max_key_size=15, max_value_size=4416) # will_always_be_0, canister_meta_object
-canister_images = StableBTreeMap[nat8, CanisterImage](memory_id=14, max_key_size=15, max_value_size=5_976_909) # will_always_be_0, canister_image_meta_object
+raw_assets = StableBTreeMap[nat16, Asset](memory_id=2, max_key_size=15, max_value_size=615099) # raw_asset_index, actual_asset - will handle 100KB thumbs and 500 KB assets
+nfts = StableBTreeMap[nat16, Nft](memory_id=3, max_key_size=9, max_value_size=559) # nft_index, nft_object - will handle 10k NFTs
+nft_metadata = StableBTreeMap[nat16, NftMetadata](memory_id=4, max_key_size=9, max_value_size=5873) # will handle 10k NFTs
+transactions = StableBTreeMap[nat64, TransferEvent](memory_id=5, max_key_size=15, max_value_size=244) # transaction_id, actual_transaction - will handle 10k NFTs                    
+events = StableBTreeMap[nat64, Event](memory_id=6, max_key_size=15, max_value_size=427) # event_id, actual_event - will handle 10k NFTs
+display_to_raw_asset = StableBTreeMap[DisplayToRawAsset, nat16](memory_id=7, max_key_size=159, max_value_size=9) # a 3-primary-key composite index, raw_asset_index
+asset_views = StableBTreeMap[str, AssetView](memory_id=8, max_key_size=72, max_value_size=140)
+reveal_categories = StableBTreeMap[str, RevealCategory](memory_id=9, max_key_size=72, max_value_size=125) # reveal_category_name, actual_reveal_category_object
+display_to_reveal_categories = StableBTreeMap[DisplayToRevealCategories, list[str]](memory_id=11, max_key_size=88, max_value_size=3275) # reveal_category_name, actual_reveal_category_object
+nft_rarity_scores = StableBTreeMap[str, list[tupleType]](memory_id=12, max_key_size=72, max_value_size=160010) # nft_index, rarity_score_object
+canister_metadata = StableBTreeMap[nat8, CanisterMeta](memory_id=13, max_key_size=15, max_value_size=6804) # will_always_be_0, canister_meta_object
+canister_images = StableBTreeMap[nat8, CanisterImage](memory_id=14, max_key_size=15, max_value_size=6_144_036) # will_always_be_0, canister_image_meta_object
 
 # DISPLAY INDEX, ASSET VIEWS, REVEAL CATEGORIES, RAW ASSET INDEX
 # Create raw assets in raw_assets.
@@ -130,140 +130,158 @@ def post_upgrade_():
     new_event('Upgrade','Canister was upgraded')
 
 @query
-def get_reveal_category_names() -> opt[list[str]]:
+def get_reveal_categories() -> list[tuple[str,RevealCategory]]:
     '''
     Returns all reveal categories that have been created.
     '''
-    return reveal_categories.keys()
+    return reveal_categories.items()
 
 @query
-def get_asset_view_names() -> opt[list[str]]:
+def get_asset_views() -> list[tuple[str,AssetView]]:
     '''
     Returns all asset views that have been created.
     '''
-    return asset_views.keys()
+    return asset_views.items()
 
 @update
 def create_reveal_category(reveal_category: RevealCategory) -> FunctionCallResult:
     '''
     Creates a reveal category that can then be used to dynamically change your asset.
     '''
-    category_name = reveal_category['category_name']
-    reveal_categories.insert(category_name,{
-        'condition_index': reveal_category['condition_index'],
-        'priority': reveal_category['priority'],
-        'category_name': category_name,
-    })
-    return {'ok':f'You successfully added the new reveal category "{category_name}".'}
+    if str(ic.caller()) in get_permissions('level_1'):
+        category_name = reveal_category['category_name']
+        reveal_categories.insert(category_name,{
+            'reveal_condition': reveal_category['reveal_condition'],
+            'priority': reveal_category['priority'],
+            'category_name': category_name,
+        })
+        return {'ok':f'You successfully added the new reveal category "{category_name}".'}
+    else:
+        return {'err':'Sorry you must be admin to call create reveal category.'}
 
 @update
 def remove_reveal_category(category_name: str) -> FunctionCallResult:
     '''
     Deletes a reveal category.
     '''
-    if reveal_categories.contains_key(category_name):
-        reveal_categories.remove(category_name)
-        return {'ok':f'You successfully removed the reveal category "{category_name}".'}
+    if str(ic.caller()) in get_permissions('level_1'):
+        if reveal_categories.contains_key(category_name):
+            reveal_categories.remove(category_name)
+            return {'ok':f'You successfully removed the reveal category "{category_name}".'}
+        else:
+            return {'err':'The reveal category name was not found.'}
     else:
-        return {'err':'The reveal category name was not found.'}
+        return {'err':'Sorry you must be admin to call remove reveal category.'}
 
 @update
 def trigger_reveal_on(reveal_category_name: str) -> FunctionCallResult:
     '''
     Manually triggers reveal on for a specific reveal category name (the name is the index for reveal categories)
     '''
-    reveal_category_opt = reveal_categories.get(reveal_category_name)
-    if reveal_category_opt:
-        reveal_condition = reveal_category_opt['reveal_condition']
-        if 'manual_condition' in reveal_condition:
-            reveal_condition['manual_condition'] = True
-            return {'ok':f'Display for "{reveal_category_name}" was successfully switched to True.'}
+    if str(ic.caller()) in get_permissions('level_1'):
+        reveal_category_opt = reveal_categories.get(reveal_category_name)
+        if reveal_category_opt:
+            reveal_condition = reveal_category_opt['reveal_condition']
+            if 'manual_condition' in reveal_condition:
+                reveal_condition['manual_condition'] = True
+                new_event('Manual reveal',f'Manual reveal triggered on for {reveal_category_name}')
+                return {'ok':f'Display for "{reveal_category_name}" was successfully switched to True.'}
+            else:
+                return {'err':f'Sorry, "{reveal_category_name}" is not a manually triggered condition and cannot be switched to True.'}
         else:
-            return {'err':f'Sorry, "{reveal_category_name}" is not a manually triggered condition and cannot be switched to True.'}
+            return {'err':'Sorry, that reveal category cannot be found.'}
     else:
-        return {'err':'Sorry, that reveal category cannot be found.'}
+        return {'err':'Sorry you must be admin to call trigger reveal on.'}
 
 @update
 def trigger_reveal_off(reveal_category_name: str) -> FunctionCallResult:
     '''
     Manually triggers reveal off for a specific reveal category name (the name is the index for reveal categories)
     '''
-    reveal_category_opt = reveal_categories.get(reveal_category_name)
-    if reveal_category_opt:
-        reveal_condition = reveal_category_opt['reveal_condition']
-        if 'manual_condition' in reveal_condition:
-            reveal_condition['manual_condition'] = False
-            return {'ok':f'Display for "{reveal_category_name}" was successfully switched to False.'}
+    if str(ic.caller()) in get_permissions('level_1'):
+        reveal_category_opt = reveal_categories.get(reveal_category_name)
+        if reveal_category_opt:
+            reveal_condition = reveal_category_opt['reveal_condition']
+            if 'manual_condition' in reveal_condition:
+                reveal_condition['manual_condition'] = False
+                new_event('Manual reveal',f'Manual reveal triggered off for {reveal_category_name}')
+                return {'ok':f'Display for "{reveal_category_name}" was successfully switched to False.'}
+            else:
+                return {'err':f'Sorry, "{reveal_category_name}" is not a manually triggered condition and cannot be switched to False.'}
         else:
-            return {'err':f'Sorry, "{reveal_category_name}" is not a manually triggered condition and cannot be switched to False.'}
+            return {'err':'Sorry, that reveal category cannot be found.'}
     else:
-        return {'err':'Sorry, that reveal category cannot be found.'}
+        return {'err':'Sorry you must be admin to call trigger reveal off.'}
 
 @update
 def create_asset_view(asset_view: AssetView) -> FunctionCallResult:
     '''
     Creates a new asset view which allows you to then upload assets to that asset view.
     '''
-    view_name = asset_view['view_name']
-    asset_views.insert(view_name, asset_view)
-    return {'ok':f'Asset view {view_name} successfully created.'}
-
-@query
-def get_all_asset_views() -> list[opt[AssetView]]:
-    '''
-    Returns all asset views (could be cached) for the collection for the frontend to display.
-    '''
-    all_asset_views: list[opt[AssetView]] = []
-    if asset_views.len() > 0:
-        asset_view_array = asset_views.keys()
-        for asset_view_name in asset_view_array:
-            asset_view_opt = asset_views.get(asset_view_name)
-            all_asset_views.append(asset_view_opt)
-        return all_asset_views
+    if str(ic.caller()) in get_permissions('level_1'):
+        view_name = asset_view['view_name']
+        asset_views.insert(view_name, asset_view)
+        return {'ok':f'Asset view {view_name} successfully created.'}
     else:
-        return []
+        return {'err':'Sorry you must be admin to call create asset view.'}
 
 @update
 def remove_asset_view(view_name: str) -> FunctionCallResult:
     '''
     Deletes an asset view from the asset views array.
     '''
-    asset_views.remove(view_name)
-    return {'ok':f'Asset view {view_name} successfully deleted.'}
+    if str(ic.caller()) in get_permissions('level_1'):
+        asset_views.remove(view_name)
+        return {'ok':f'Asset view {view_name} successfully deleted.'}
+    else:
+        return {'err':'Sorry you must be admin to call remove asset view.'}
 
 @query
-def get_reveal_categories_for_display(indexes: DisplayToRevealCategories) -> opt[list[str]]:
+def get_reveal_categories_for_single_display(indexes: DisplayToRevealCategories) -> opt[list[str]]:
     return display_to_reveal_categories.get(indexes)
+
+@query
+def get_all_reveal_categories_for_display() -> list[tuple[DisplayToRevealCategories,list[str]]]:
+    return display_to_reveal_categories.items()
 
 @update
 def remove_reveal_categories_from_display(indexes: DisplayToRevealCategories) -> FunctionCallResult:
-    if display_to_reveal_categories.contains_key(indexes):
-        display_to_reveal_categories.remove(indexes)
-        return {'ok':'Successfully removed reveal categories from display.'}
+    if str(ic.caller()) in get_permissions('level_1'):
+        if display_to_reveal_categories.contains_key(indexes):
+            display_to_reveal_categories.remove(indexes)
+            return {'ok':'Successfully removed reveal categories from display.'}
+        else:
+            return {'err':'Sorry, the display to reveal category indexes were not found.'}
     else:
-        return {'err':'Sorry, the display to reveal category indexes were not found.'}
+        return {'err':'Sorry you must be admin to call remove reveal categories from display.'}
 
 @update
 def add_reveal_category_to_display(reveal_category: str, indexes: DisplayToRevealCategories) -> FunctionCallResult:
-    reveal_category_array_opt = display_to_reveal_categories.get(indexes)
-    if not reveal_category_array_opt:
-        reveal_category_array_opt = []
-    reveal_category_array_opt.append(reveal_category)
-    display_to_reveal_categories.insert(indexes,reveal_category_array_opt)
-    return {'ok':'Success.'}
-
-@update
-def add_many_reveal_categories_to_display(reveal_categories: list[tuple[str,DisplayToRevealCategories]]) -> FunctionCallResult:
-    for reveal_category_tuple in reveal_categories:
-        reveal_category = reveal_category_tuple[0]
-        indexes = reveal_category_tuple[1]
-
+    if str(ic.caller()) in get_permissions('level_1'):
         reveal_category_array_opt = display_to_reveal_categories.get(indexes)
         if not reveal_category_array_opt:
             reveal_category_array_opt = []
         reveal_category_array_opt.append(reveal_category)
         display_to_reveal_categories.insert(indexes,reveal_category_array_opt)
-    return {'ok':f'Successfully added {len(reveal_categories)} new reveal categories.'}
+        return {'ok':'Success.'}
+    else:
+        return {'err':'Sorry you must be admin to call add reveal category to display.'}
+
+@update
+def add_many_reveal_categories_to_display(reveal_categories: list[tuple[str,DisplayToRevealCategories]]) -> FunctionCallResult:
+    if str(ic.caller()) in get_permissions('level_1'):
+        for reveal_category_tuple in reveal_categories:
+            reveal_category = reveal_category_tuple[0]
+            indexes = reveal_category_tuple[1]
+
+            reveal_category_array_opt = display_to_reveal_categories.get(indexes)
+            if not reveal_category_array_opt:
+                reveal_category_array_opt = []
+            reveal_category_array_opt.append(reveal_category)
+            display_to_reveal_categories.insert(indexes,reveal_category_array_opt)
+        return {'ok':f'Successfully added {len(reveal_categories)} new reveal categories.'}
+    else:
+        return {'err':'Sorry you must be admin to call add many reveal categories to display.'}
 
 def determine_reveal_category(display_index: nat16, asset_view: str) -> str:
     '''
@@ -358,20 +376,9 @@ def get_event(event_index: nat64) -> opt[Event]:
     event_opt = events.get(event_index)
     return event_opt
 
-def get_event_items() -> list[tuple[nat64,opt[Event]]]:
-    '''
-    A helper function to get transactions since ".items()" is not allowed on stable structures yet.
-    '''
-    final_events: list[tuple[nat64,opt[Event]]] = []
-    for event_index in range(events.len()):
-        event_opt = events.get(event_index)
-        event_value = (event_index,event_opt)
-        final_events.append(event_value)
-    return final_events
-
 @query
-def get_all_events() -> list[tuple[nat64,opt[Event]]]:
-    return get_event_items()
+def get_all_events() -> list[tuple[nat64,Event]]:
+    return events.items()
 
 @query
 def get_raw_asset_index(display_index: nat, asset_view: str, reveal_category: str) -> FunctionCallResultNat:
@@ -388,20 +395,9 @@ def get_raw_asset_index(display_index: nat, asset_view: str, reveal_category: st
     else:
         return {'err':'Sorry, an asset index was not found from that display index, asset view, and reveal category.'}
 
-def get_transaction_items() -> list[tuple[nat64,opt[TransferEvent]]]:
-    '''
-    A helper function to get transactions since ".items()" is not allowed on stable structures yet.
-    '''
-    final_transactions: list[tuple[nat64,opt[TransferEvent]]] = []
-    for txn_index in range(transactions.len()):
-        txn_opt = transactions.get(txn_index)
-        txn_value = (txn_index,txn_opt)
-        final_transactions.append(txn_value)
-    return final_transactions
-
 @query
-def get_all_transactions() -> list[tuple[nat64,opt[TransferEvent]]]:
-    return get_transaction_items()
+def get_all_transactions() -> list[tuple[nat64,TransferEvent]]:
+    return transactions.items()
 
 @query
 def get_transaction(transaction_id: nat64) -> opt[TransferEvent]:
@@ -411,23 +407,12 @@ def get_transaction(transaction_id: nat64) -> opt[TransferEvent]:
     transaction_opt = transactions.get(transaction_id)
     return transaction_opt
 
-def get_registry_items() -> list[tuple[nat16,str]]:
-    '''
-    A helper function to get registry items since ".items()" is not allowed on stable structures yet.
-    '''
-    final_registry: list[tuple[nat16,str]] = []
-    for nft_index in range(registry.len()):
-        registry_opt = registry.get(nft_index)
-        registry_value = registry_opt if registry_opt is not None else ''
-        final_registry.append((nft_index,registry_value))
-    return final_registry
-
 @query
 def get_registry() -> list[tuple[nat, str]]:
     '''
     Return the registry for the collection.
     '''
-    return get_registry_items()
+    return registry.items()
 
 @query
 def get_nft(nft_index: nat) -> opt[Nft]:
@@ -437,22 +422,12 @@ def get_nft(nft_index: nat) -> opt[Nft]:
     nft_opt = nfts.get(nft_index)
     return nft_opt
 
-def get_nfts_items() -> list[tuple[nat16,opt[Nft]]]:
-    '''
-    A helper function to return items for NFTs since ".items()" is not allowed on stablebtree yet.
-    '''
-    final_nfts: list[tuple[nat16,opt[Nft]]] = []
-    for nft_index in range(nfts.len()):
-        nft_opt = nfts.get(nft_index)
-        final_nfts.append((nft_index,nft_opt))
-    return final_nfts
-
 @query
-def get_all_nfts() -> list[tuple[nat, opt[Nft]]]:
+def get_all_nfts() -> list[tuple[nat, Nft]]:
     '''
     Returns all NFTs.
     '''
-    return get_nfts_items()
+    return nfts.items()
 
 @query
 def get_owner(nft_index: nat) -> opt[str]:
@@ -683,7 +658,12 @@ def compute_rarity() -> FunctionCallResult:
     '''
     Use static text and static number traits (dynamic traits should not be included) to create multiple rarity scores, saved in the NFT and separately in arrays.
     '''
-    return rarity_computation.run_rarity_calcs(canister_metadata, nfts, registry, nft_metadata, nft_rarity_scores, str(ic.caller()))
+    if str(ic.caller()) in get_permissions('level_1'):
+        rarity_data = rarity_computation.run_rarity_calcs(canister_metadata, nfts, registry, nft_metadata, nft_rarity_scores, str(ic.caller()))
+        new_event('Rarity Calculated','All rarity data was successfully calculated.')
+        return rarity_data
+    else:
+        return {'err':'Sorry you must be admin to compute rarity.'}
 
 @query
 def get_rarity_data(rarity_category: str) -> list[tuple[nat16, float64]]:
@@ -712,6 +692,7 @@ def set_canister_metadata(canister_data: SetCanister) -> FunctionCallResult:
         if canister_opt:
             for key in canister_data.keys():
                 canister_opt[key] = canister_data[key]
+                new_event('Canister Metadata',f'Canister metadata {key} set to {canister_data[key]}')
 
             canister_metadata.insert(0,canister_opt)
             return {'ok':'Successfully set canister metadata.'}
@@ -1013,7 +994,7 @@ def get_collection_collaborators() -> list[str]:
         return []
 
 @update
-def set_license(license: str) -> FunctionCallResult:
+def set_collection_license(license: str) -> FunctionCallResult:
     '''
     Set NFT license globally at the collection level.
     '''
@@ -1031,17 +1012,22 @@ def set_license(license: str) -> FunctionCallResult:
 
 @update
 def upload_canister_image(raw_asset: CanisterImage) -> FunctionCallResult:
-    canister_image_opt = canister_images.get(0)
-    if not canister_image_opt:
-        canister_image_opt: opt[CanisterImage] = {'avatar':None,'banner':None,'collection':None}
-    if raw_asset['avatar']:
-        canister_image_opt['avatar'] = raw_asset['avatar']
-    if raw_asset['banner']:
-        canister_image_opt['banner'] = raw_asset['banner']
-    if raw_asset['collection']:
-        canister_image_opt['collection'] = raw_asset['collection']
-    canister_images.insert(0,canister_image_opt)
-    return {'ok':'Images successfully updated.'}
+    if str(ic.caller()) in get_permissions('level_2'):
+        canister_image_opt = canister_images.get(0)
+        if not canister_image_opt:
+            canister_image_opt: opt[CanisterImage] = {'avatar':None,'banner':None,'collection':None}
+        if raw_asset['avatar']:
+            canister_image_opt['avatar'] = raw_asset['avatar']
+            new_event('Canister Images',f'Canister avatar image updated.')
+        if raw_asset['banner']:
+            canister_image_opt['banner'] = raw_asset['banner']
+            new_event('Canister Images',f'Canister banner image updated.')
+        if raw_asset['collection']:
+            canister_image_opt['collection'] = raw_asset['collection']
+            new_event('Canister Images',f'Canister collection image updated.')
+        canister_images.insert(0,canister_image_opt)
+        return {'ok':'Images successfully updated.'}
+    return {'err':'Sorry you must be admin to upload a canister image.'}
 
 @update
 def upload_raw_asset(raw_asset: RawAssetForUpload) -> FunctionCallResultNat:
@@ -1104,10 +1090,11 @@ def create_full_asset_display(display: AssetDisplayForUpload) -> FunctionCallRes
         
         if display_index is None:
             display_to_raw_asset_keys = display_to_raw_asset.keys()
-            if len(display_to_raw_asset_keys) == 0:
+            display_indexes = [x['display_index'] for x in display_to_raw_asset_keys]
+            if len(display_indexes) == 0:
                 display_index = 0
             else:
-                max_display_index = max(display_to_raw_asset_keys)
+                max_display_index = max(display_indexes)
                 display_index = max_display_index + 1
 
         display_to_raw_asset.insert({'display_index':display_index,'asset_view':asset_view,'reveal_category':reveal_category},raw_asset_index)
@@ -1122,6 +1109,8 @@ def create_many_full_asset_displays(display_list: list[AssetDisplayForUpload]) -
     A convenience function for speed. Allows creating many full asset displays all at the same time in the same update call.
     '''
     if str(ic.caller()) in get_permissions('level_1'):
+        display_to_raw_asset_keys = display_to_raw_asset.keys()
+        display_indexes = [x['display_index'] for x in display_to_raw_asset_keys]
         for display in display_list:
             display_index = display['display_index']
             asset_view = display['asset_view']
@@ -1133,28 +1122,23 @@ def create_many_full_asset_displays(display_list: list[AssetDisplayForUpload]) -
                 reveal_category = 'start'
             
             if display_index is None:
-                display_to_raw_asset_keys = display_to_raw_asset.keys()
-                if len(display_to_raw_asset_keys) == 0:
+                if len(display_indexes) == 0:
                     display_index = 0
+                    display_indexes.append(display_index)
                 else:
-                    max_display_index = max(display_to_raw_asset_keys)
+                    max_display_index = max(display_indexes)
                     display_index = max_display_index + 1
+                    display_indexes.append(display_index)
 
             display_to_raw_asset.insert({'display_index':display_index,'asset_view':asset_view,'reveal_category':reveal_category},raw_asset_index)
-            new_event('Asset was uploaded',f"Display {display_index} was uploaded.")
+        new_event('Asset Displays',f"{len(display_list)} displays were added.")
         return {'ok':f'You successfully uploaded {len(display_list)} asset displays.'}
     else:
         return {'err':'Only admin can call upload asset.'}
 
-def get_all_full_asset_display_items() -> list[tuple[AssetDisplay,opt[nat16]]]:
-    final_full_asset_displays: list[tuple[AssetDisplay,opt[nat16]]] = []
-    for index in display_to_raw_asset.keys():
-        final_full_asset_displays.append(index,display_to_raw_asset.get(index))
-    return final_full_asset_displays
-
 @query
-def get_all_full_asset_displays() -> list[tuple[AssetDisplay,opt[nat16]]]:
-    return get_all_full_asset_display_items()
+def get_all_full_asset_displays() -> list[tuple[AssetDisplay,nat16]]:
+    return display_to_raw_asset.items()
 
 @query
 def get_full_asset_display(asset_display: AssetDisplay) -> FunctionCallResultNat:
@@ -1166,29 +1150,21 @@ def get_full_asset_display(asset_display: AssetDisplay) -> FunctionCallResultNat
 
 @update
 def delete_full_asset_display(asset_display: AssetDisplay) -> FunctionCallResult:
-    if display_to_raw_asset.contains_key(asset_display):
-        display_to_raw_asset.remove(asset_display)
-        return {'ok':'Full asset display removed successfully.'}
+    if str(ic.caller()) in get_permissions('level_2'):
+        if display_to_raw_asset.contains_key(asset_display):
+            display_to_raw_asset.remove(asset_display)
+            return {'ok':'Full asset display removed successfully.'}
+        else:
+            return {'err':'An asset index was not found under the provided asset display indexes.'}
     else:
-        return {'err':'An asset index was not found under the provided asset display indexes.'}
-
-def get_raw_asset_items() -> list[tuple[nat16,str,str,str,str]]:
-    '''
-    A helper function to return all raw assets without actually returning the image values.
-    '''
-    final_assets: list[tuple[nat16,str,str,str,str]] = []
-    for raw_asset_index in range(raw_assets.len()):
-        raw_asset_opt = raw_assets.get(raw_asset_index)
-        if raw_asset_opt:
-            final_assets.append((raw_asset_index,raw_asset_opt['asset_file_name'],raw_asset_opt['asset_file_type'],raw_asset_opt['thumb_file_name'],raw_asset_opt['thumb_file_type']))
-    return final_assets
+        return {'err':'Sorry you must be admin to delete full asset displays.'}
 
 @query
-def get_raw_assets() -> list[tuple[nat16,str,str,str,str]]:
+def get_raw_assets() -> list[tuple[nat16,Asset]]:
     '''
     Returns all asset names, file types, etc.
     '''
-    return get_raw_asset_items()
+    return raw_assets.items()
 
 @update
 def edit_raw_asset(raw_asset: EditRawAsset) -> FunctionCallResult:
@@ -1315,7 +1291,7 @@ def mint_many_NFTs(nft_objects: list[NftForMinting]) -> ManyMintResult:
                             error_messages.append(f"NFT index {nft_index} would put the canister above the max mint limit.")
                     else:
                         error_messages.append(f'NFT index {nft_index} already exists.')
-                new_event('Mint New NFT',f"{len(nft_objects)} NFTs were just minted.")
+                new_event('Mint New NFT',f"{len(nft_objects)} NFTs were just minted with {len(error_messages)} errors.")
 
             return {'ok':error_messages}
         else:
@@ -1343,39 +1319,42 @@ def mint_nft(nft_object: NftForMinting) -> FunctionCallResult:
             registry_max = max(registry_keys)
             nft_index = registry_max + 1
     
-    canister_meta_opt = canister_metadata.get(0)
-    if canister_meta_opt:
-        if not registry.contains_key(nft_index):
-            if registry.len() < canister_meta_opt['max_number_of_nfts_to_mint']:
-                if len(to_address) == 64:
-                    registry.insert(nft_index,to_address)
+    if str(ic.caller()) in get_permissions('level_2'):
+        canister_meta_opt = canister_metadata.get(0)
+        if canister_meta_opt:
+            if not registry.contains_key(nft_index):
+                if registry.len() < canister_meta_opt['max_number_of_nfts_to_mint']:
+                    if len(to_address) == 64:
+                        registry.insert(nft_index,to_address)
 
-                    address_registry_opt = address_registry.get(to_address)
-                    if address_registry_opt:
-                        address_registry_opt.append(nft_index)
-                        address_registry.insert(to_address,address_registry_opt)
+                        address_registry_opt = address_registry.get(to_address)
+                        if address_registry_opt:
+                            address_registry_opt.append(nft_index)
+                            address_registry.insert(to_address,address_registry_opt)
+                        else:
+                            address_registry.insert(to_address,[nft_index])
+
+                        nfts.insert(nft_index,{
+                            'nft_index': nft_index,
+                            'asset_url': asset_url,
+                            'thumbnail_url': thumbnail_url,
+                            'display_index': display_index,
+                            'metadata_index': metadata_index
+                        })
+                        new_event('Mint New NFT',f"NFT {nft_index} was minted with display_index {display_index} asset_url {asset_url} thumbnail_url {thumbnail_url} metadata {metadata}")
+                        new_transfer_event('',to_address,nft_index,'Minted')
+
+                        return {'ok':'Mint successful.'}
                     else:
-                        address_registry.insert(to_address,[nft_index])
-
-                    nfts.insert(nft_index,{
-                        'nft_index': nft_index,
-                        'asset_url': asset_url,
-                        'thumbnail_url': thumbnail_url,
-                        'display_index': display_index,
-                        'metadata_index': metadata_index
-                    })
-                    new_event('Mint New NFT',f"NFT {nft_index} was minted with display_index {display_index} asset_url {asset_url} thumbnail_url {thumbnail_url} metadata {metadata}")
-                    new_transfer_event('',to_address,nft_index,'Minted')
-
-                    return {'ok':'Mint successful.'}
+                        return {'err':f'Length of to address is {len(to_address)} when it should be 64'}
                 else:
-                    return {'err':f'Length of to address is {len(to_address)} when it should be 64'}
+                    return {'err':'Sorry, you cannot mint more NFTs than the originally listed maximum'}
             else:
-                return {'err':'Sorry, you cannot mint more NFTs than the originally listed maximum'}
+                return {'err':'This index has already been minted.'}
         else:
-            return {'err':'This index has already been minted.'}
+            return {'err':'Please set max number of NFTs to mint in the metadata before calling this method.'}
     else:
-        return {'err':'Sorry, only admin can call mint NFT.'}
+        return {'err':'Sorry you must be admin to mint NFTs.'}
 
 @update
 def edit_nft(nft_object: Nft) -> FunctionCallResult:
@@ -1881,6 +1860,22 @@ def return_multipart_image_html(display_index: opt[nat], asset_view: str, reveal
         return default_response
     return default_response
 
+def return_canister_image(image_type: str) -> HttpResponse:
+    canister_images_opt = canister_images.get(0)
+    if canister_images_opt:
+        image_bytes: blob = canister_images_opt[image_type]
+        return {
+            'status_code':200,
+            'headers':[
+                ('Content-Type','image/png'),
+            ],
+            'body':image_bytes,
+            'streaming_strategy': None,
+            'upgrade': False
+        }
+    else:
+        return return_image_html(None, None, '')
+
 @query
 def http_request(request: HttpRequest) -> HttpResponse:
     '''
@@ -1892,12 +1887,19 @@ def http_request(request: HttpRequest) -> HttpResponse:
     else:
         return get_home_page_html(registry, address_registry, canister_metadata, events)
 
+    param_keys = params.keys()
+
     if 'view' in params:
         asset_view = params['view']
     else:
         asset_view = 'image'
 
-    if 'index' in request_url and 'thumbnail' not in request_url:
+    thumbnail: bool = False
+    if 'type' in param_keys:
+        if params['type'] == 'thumbnail':
+            thumbnail = True
+
+    if 'index' in param_keys and not thumbnail:
         
         nft_index = int(params['index'])
         if 'view' in params:
@@ -1919,8 +1921,7 @@ def http_request(request: HttpRequest) -> HttpResponse:
 
         return return_image_html(None, None, '')
 
-    elif 'index' in request_url and 'thumbnail' in request_url:
-        params = get_request_params(request_url)
+    elif 'index' in param_keys and thumbnail:
         nft_index = int(params['index'])
         if 'view' in params:
             asset_view = params['view']
@@ -1940,8 +1941,7 @@ def http_request(request: HttpRequest) -> HttpResponse:
                     return return_thumbnail_bytes(thumbnail_bytes, thumb_file_type)
         return return_image_html(None, None, '')
 
-    elif 'tokenid' in request_url and 'thumbnail' not in request_url:
-        params = get_request_params(request_url)
+    elif 'tokenid' in param_keys and not thumbnail:
         tokenid = str(params['tokenid'])
         nft_index = get_index_from_token_id(tokenid)
         if 'view' in params:
@@ -1962,8 +1962,7 @@ def http_request(request: HttpRequest) -> HttpResponse:
                     return return_image_html(asset_url, asset_view, asset_type)
         return return_image_html(None, None, '')
     
-    elif 'tokenid' in request_url and 'thumbnail' in request_url:
-        params = get_request_params(request_url)
+    elif 'tokenid' in param_keys and thumbnail:
         tokenid = str(params['tokenid'])
         nft_index = get_index_from_token_id(tokenid)
         if 'view' in params:
@@ -1984,8 +1983,7 @@ def http_request(request: HttpRequest) -> HttpResponse:
                     return return_thumbnail_bytes(thumbnail_bytes, thumb_file_type)
         return return_image_html(None, None, '')
     
-    elif 'asset' in request_url and 'thumbnail' not in request_url:
-        params = get_request_params(request_url)
+    elif 'asset' in param_keys and not thumbnail:
         display_index = int(params['asset'])
         if 'view' in params:
             asset_view = params['view']
@@ -2002,8 +2000,7 @@ def http_request(request: HttpRequest) -> HttpResponse:
                 return return_multipart_image_html(display_index, asset_view, reveal_category, asset_type, asset_bytes)
         return return_image_html(None, None, '')
     
-    elif 'asset' in request_url and 'thumbnail' in request_url:
-        params = get_request_params(request_url)
+    elif 'asset' in param_keys and thumbnail:
         display_index = int(params['asset'])
         if 'view' in params:
             asset_view = params['view']
@@ -2019,6 +2016,15 @@ def http_request(request: HttpRequest) -> HttpResponse:
                 thumb_file_type = raw_asset_opt['thumb_file_type']
                 return return_thumbnail_bytes(thumbnail_bytes, thumb_file_type)
         return return_image_html(None, None, '')
+
+    elif params['type'] == 'avatar':
+        return return_canister_image('avatar')
+    
+    elif params['type'] == 'banner':
+        return return_canister_image('banner')
+    
+    elif params['type'] == 'collection':
+        return return_canister_image('collection')
 
     else:
         return get_home_page_html(registry, address_registry, canister_metadata, events)
@@ -2167,20 +2173,11 @@ def tokens_ext(address: str) -> TokensExtResult:
     else:
         return {'err':{'Other':'Sorry, address not found'}}
 
-def get_ext_tokens_items() -> list[tuple[nat32,Metadata]]:
-    final_ext_tokens: list[tuple[nat32,Metadata]] = []
-    for nft_index in range(nfts.len()):
-        nft_opt = nfts.get(nft_index)
-        if nft_opt:
-            final_ext_tokens.append((nft_opt['nft_index'],{'nonfungible':{'metadata':None}}))
-    return final_ext_tokens
-
-def get_tokens_items() -> list[tuple[nat32,Metadata]]:
-    final_tokens: list[tuple[nat32,Metadata]] = []
+def get_tokens_items() -> list[tuple[nat16,Metadata]]:
+    final_tokens: list[tuple[nat16,Metadata]] = []
     registry_keys = registry.keys()
-    for nft_index in range(registry_keys):
-        registry_opt = registry.get(nft_index)
-        if registry_opt:
+    for nft_index in registry_keys:
+        if registry.contains_key(nft_index):
             final_tokens.append((nft_index,{'nonfungible':{'metadata':None}}))
     return final_tokens
 
@@ -2193,3 +2190,24 @@ def getTokens() -> list[tuple[nat32,Metadata]]:
 @query
 def listings() -> list[str]:
     return []
+
+# Entrepot license method to return license for an NFT
+# Return NFT specific license if populated, otherwise return collection license
+@query
+def license(token_identifier: str) -> str:
+    nft_index = get_index_from_token_id(token_identifier)
+    nft_opt = nfts.get(nft_index)
+    if nft_opt:
+        metadata_index_opt = nft_opt['metadata_index']
+        if metadata_index_opt:
+            metadata_opt = nft_metadata.get(metadata_index_opt)
+            if metadata_opt:
+                nft_license = metadata_opt['license']
+                if nft_license:
+                    return nft_license
+    
+    canister_meta_opt = canister_metadata.get(0)
+    if canister_meta_opt:
+        return canister_meta_opt['license']
+    else:
+        return ''

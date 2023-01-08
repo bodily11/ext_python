@@ -1,3 +1,16 @@
+type Asset = record {
+  thumbnail_bytes : vec nat8;
+  asset_bytes : vec vec nat8;
+  asset_file_name : text;
+  asset_file_type : text;
+  thumb_file_name : text;
+  thumb_file_type : text;
+};
+type AssetDisplay = record {
+  asset_view : text;
+  reveal_category : text;
+  display_index : nat16;
+};
 type AssetDisplayForUpload = record {
   raw_asset_index : nat16;
   asset_view : text;
@@ -16,6 +29,11 @@ type CallbackStrategy = record {
   callback : func (Token) -> (
       record { token : opt Token; body : vec nat8 },
     ) query;
+};
+type CanisterImage = record {
+  collection : opt vec nat8;
+  banner : opt vec nat8;
+  avatar : opt vec nat8;
 };
 type CanisterMeta = record {
   web : opt text;
@@ -42,6 +60,10 @@ type CommonError = variant {
   InvalidToken : text;
   Unauthorized : text;
   Other : text;
+};
+type DisplayToRevealCategories = record {
+  asset_view : text;
+  display_index : nat16;
 };
 type EditRawAsset = record {
   raw_asset_index : nat16;
@@ -115,9 +137,13 @@ type RawAssetForUpload = record {
   thumb_file_type : opt text;
 };
 type RevealCategory = record {
-  condition_index : nat16;
+  reveal_condition : RevealCondition;
   category_name : text;
   priority : nat16;
+};
+type RevealCondition = variant {
+  manual_condition : bool;
+  single_time_condition : nat64;
 };
 type SendCyclesResult = variant { ok : nat64; err : text };
 type SetCanister = record {
@@ -193,24 +219,39 @@ service : () -> {
   add_collection_collaborator : (text) -> (FunctionCallResult);
   add_collection_owner : (text) -> (FunctionCallResult);
   add_collection_super_admin : (text) -> (FunctionCallResult);
+  add_many_reveal_categories_to_display : (
+      vec record { text; DisplayToRevealCategories },
+    ) -> (FunctionCallResult);
+  add_reveal_category_to_display : (text, DisplayToRevealCategories) -> (
+      FunctionCallResult,
+    );
   add_royalty_address : (record { text; nat }) -> (FunctionCallResult);
   admin_transfer : (nat, text) -> (FunctionCallResult);
   airdrop : (vec text, opt vec nat) -> (FunctionCallResult);
   burn_nft : (nat) -> (FunctionCallResult);
   compute_rarity : () -> (FunctionCallResult);
+  create_asset_view : (AssetView) -> (FunctionCallResult);
   create_full_asset_display : (AssetDisplayForUpload) -> (
       FunctionCallResultNat,
     );
   create_many_full_asset_displays : (vec AssetDisplayForUpload) -> (
       FunctionCallResult,
     );
-  create_new_asset_view : (AssetView) -> (FunctionCallResult);
   create_reveal_category : (RevealCategory) -> (FunctionCallResult);
+  delete_full_asset_display : (AssetDisplay) -> (FunctionCallResult);
   edit_nft : (Nft) -> (FunctionCallResult);
   edit_raw_asset : (EditRawAsset) -> (FunctionCallResult);
   getTokens : () -> (vec record { nat32; Metadata }) query;
-  get_all_nfts : () -> (vec record { nat; opt Nft }) query;
-  get_asset_view_names : () -> (opt vec text) query;
+  get_all_events : () -> (vec record { nat64; Event }) query;
+  get_all_full_asset_displays : () -> (
+      vec record { AssetDisplay; nat16 },
+    ) query;
+  get_all_nfts : () -> (vec record { nat; Nft }) query;
+  get_all_reveal_categories_for_display : () -> (
+      vec record { DisplayToRevealCategories; vec text },
+    ) query;
+  get_all_transactions : () -> (vec record { nat64; TransferEvent }) query;
+  get_asset_views : () -> (vec record { text; AssetView }) query;
   get_canister_metadata : () -> (opt CanisterMeta) query;
   get_collection_collaborators : () -> (vec text) query;
   get_collection_owners : () -> (vec text) query;
@@ -219,14 +260,18 @@ service : () -> {
   get_dynamic_traits_number : (nat, text) -> (FunctionCallResultFloat64) query;
   get_dynamic_traits_text : (nat, text) -> (FunctionCallResult) query;
   get_event : (nat64) -> (opt Event) query;
+  get_full_asset_display : (AssetDisplay) -> (FunctionCallResultNat) query;
   get_nft : (nat) -> (opt Nft) query;
   get_owner : (nat) -> (opt text) query;
   get_rarity_data : (text) -> (vec record { nat16; float64 }) query;
   get_rarity_score : (nat, text) -> (FunctionCallResultFloat64) query;
   get_raw_asset_index : (nat, text, text) -> (FunctionCallResultNat) query;
-  get_raw_assets : () -> (vec record { nat16; text; text; text; text }) query;
+  get_raw_assets : () -> (vec record { nat16; Asset }) query;
   get_registry : () -> (vec record { nat; text }) query;
-  get_reveal_category_names : () -> (opt vec text) query;
+  get_reveal_categories : () -> (vec record { text; RevealCategory }) query;
+  get_reveal_categories_for_single_display : (DisplayToRevealCategories) -> (
+      opt vec text,
+    ) query;
   get_royalty_addresses : () -> (vec record { text; nat }) query;
   get_static_traits_number : (nat, text) -> (FunctionCallResultFloat64) query;
   get_static_traits_text : (nat, text) -> (FunctionCallResult) query;
@@ -238,6 +283,7 @@ service : () -> {
   http_request_streaming_callback : (Token) -> (
       StreamingCallbackHttpResponse,
     ) query;
+  license : (text) -> (text) query;
   listings : () -> (vec text) query;
   metadata : (text) -> (MetadataResponse) query;
   mint_many_NFTs : (vec NftForMinting) -> (ManyMintResult);
@@ -247,12 +293,18 @@ service : () -> {
   remove_collection_owner : (text) -> (FunctionCallResult);
   remove_collection_super_admin : (text) -> (FunctionCallResult);
   remove_raw_asset : (nat) -> (FunctionCallResult);
+  remove_reveal_categories_from_display : (DisplayToRevealCategories) -> (
+      FunctionCallResult,
+    );
+  remove_reveal_category : (text) -> (FunctionCallResult);
   remove_royalty_address : (text) -> (FunctionCallResult);
   send_cycles : (nat64) -> (SendCyclesResult);
   set_burn_address : (text) -> (FunctionCallResult);
   set_canister_metadata : (SetCanister) -> (FunctionCallResult);
+  set_collection_license : (text) -> (FunctionCallResult);
   set_collection_name : (text) -> (FunctionCallResult);
-  set_license : (text) -> (FunctionCallResult);
+  set_many_number_trait : (vec UpdateMetadataText) -> (ManyMintResult);
+  set_many_text_trait : (vec UpdateMetadataText) -> (ManyMintResult);
   set_max_number_of_nfts_to_mint : (nat) -> (FunctionCallResult);
   set_new_creator_royalty : (vec record { text; nat }) -> (FunctionCallResult);
   set_number_trait : (UpdateMetadataNumber) -> (FunctionCallResult);
@@ -262,6 +314,7 @@ service : () -> {
   trigger_reveal_off : (text) -> (FunctionCallResult);
   trigger_reveal_on : (text) -> (FunctionCallResult);
   unmint_nft : (nat) -> (FunctionCallResult);
+  upload_canister_image : (CanisterImage) -> (FunctionCallResult);
   upload_raw_asset : (RawAssetForUpload) -> (FunctionCallResultNat);
   who_am_i : () -> (text) query;
 }
